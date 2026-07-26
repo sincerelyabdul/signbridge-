@@ -499,7 +499,7 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const lastIndex = transcriptCopy.length - 1;
     const lastLine = lastIndex >= 0 ? transcriptCopy[lastIndex] : null;
 
-    let lineId = crypto.randomUUID();
+    let lineId: string = crypto.randomUUID();
     let isUpdate = false;
 
     // Deduplication check: if new text is an extension or duplicate of the last line within 10 seconds
@@ -611,7 +611,7 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         offlineSync.postMessage({
           type: "TRANSCRIPT",
           sessionId: activeSession.id,
-          line: newLine
+          line: updatedTranscript[updatedTranscript.length - 1]
         });
         
         if (detectedVocab) {

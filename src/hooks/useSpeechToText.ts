@@ -292,7 +292,7 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
       const attempt = reconnectAttemptsRef.current;
       if (attempt < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
-        console.warn(`[Deepgram STT] Connection closed. Reconnecting in ${delay}ms (attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        console.warn(`[Deepgram STT] Connection closed (code ${e.code}). Reconnecting in ${delay}ms (attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
         reconnectAttemptsRef.current += 1;
         setConnectionStatus("reconnecting");
         reconnectTimerRef.current = setTimeout(() => {
