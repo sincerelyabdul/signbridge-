@@ -33,63 +33,67 @@ export const Dashboard: React.FC = () => {
 
   const handleSelectSession = (session: any) => {
     selectHistorySession(session);
-    navigate(`/review/${session.id}`);
+    if (session.isActive) {
+      navigate(`/lecturer/${session.id}`);
+    } else {
+      navigate(`/review/${session.id}`);
+    }
   };
 
   const isDemoUser = user?.id === "mock_user_id";
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
-      
+
       {/* Header */}
-      <header className="border-b border-[var(--border)] px-6 py-4 flex justify-between items-center bg-[var(--surface)]">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-2xl tracking-tight select-none">
-            sign<span className="text-[var(--primary)]">bridge</span><span className="text-[var(--primary)] font-black text-3xl">.</span>
+      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center bg-[var(--surface)] sticky top-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <span className="font-bold text-xl sm:text-2xl tracking-tight select-none shrink-0">
+            sign<span className="text-[var(--primary)]">bridge</span><span className="text-[var(--primary)] font-black text-2xl sm:text-3xl">.</span>
           </span>
-          <span className="h-4 w-px bg-[var(--border)]"></span>
-          <span className="text-[10px] px-2 py-0.5 border border-[var(--border)] text-[var(--text-muted)] rounded font-mono uppercase">
+          <span className="h-4 w-px bg-[var(--border)] hidden sm:block shrink-0"></span>
+          <span className="text-[10px] px-2 py-0.5 border border-[var(--border)] text-[var(--text-muted)] rounded font-mono uppercase hidden sm:block shrink-0">
             Lecturer Hub
           </span>
         </div>
 
         {/* User Info & Actions */}
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="text-right hidden md:block">
             <span className="text-xs font-semibold block text-[var(--text)]">{profile.fullName}</span>
             <span className="text-[9px] text-[var(--text-muted)] block font-mono">{profile.institution}</span>
           </div>
 
-          <div className="h-6 w-px bg-[var(--border)] hidden sm:block"></div>
+          <div className="h-6 w-px bg-[var(--border)] hidden md:block"></div>
 
           <div className="flex gap-2">
             <button
               onClick={() => navigate("/settings")}
-              className="p-1.5 border border-[var(--border)] rounded hover:bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
+              className="h-9 w-9 flex items-center justify-center border border-[var(--border)] rounded-lg hover:bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
               title="Settings & Vocabulary"
             >
-              <Settings size={14} />
+              <Settings size={15} />
             </button>
             <button
               onClick={handleLogout}
-              className="p-1.5 border border-[var(--border)] rounded hover:bg-red-500 hover:text-white hover:border-red-500 text-[var(--text-muted)] transition-colors cursor-pointer"
+              className="h-9 w-9 flex items-center justify-center border border-[var(--border)] rounded-lg hover:bg-red-500 hover:text-white hover:border-red-500 text-[var(--text-muted)] transition-colors cursor-pointer"
               title="Log Out"
             >
-              <LogOut size={14} />
+              <LogOut size={15} />
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8 grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
-        
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-8 items-start">
+
         {/* Left column (1/3): Start a Lecture */}
-        <div className="space-y-6">
-          
+        <div className="space-y-5">
+
           {/* Demo Alert if bypassed */}
           {isDemoUser && (
-            <div className="border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 rounded p-4 text-xs leading-relaxed flex gap-2.5 items-start text-left">
+            <div className="border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 rounded-xl p-4 text-xs leading-relaxed flex gap-2.5 items-start text-left">
               <ShieldAlert size={16} className="mt-0.5 shrink-0" />
               <div>
                 <strong className="block mb-0.5">Demo Bypass Active</strong>
@@ -98,8 +102,8 @@ export const Dashboard: React.FC = () => {
             </div>
           )}
 
-          <div className="border border-[var(--border)] rounded bg-[var(--surface)] p-6 text-left space-y-4">
-            <h2 className="text-lg font-bold text-[var(--text)] flex items-center gap-2">
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
+            <h2 className="text-base sm:text-lg font-bold text-[var(--text)] flex items-center gap-2">
               <Mic size={18} className="text-[var(--primary)]" />
               Launch Classroom
             </h2>
@@ -107,7 +111,7 @@ export const Dashboard: React.FC = () => {
               Name your lecture to start. Students can join the live feed instantly using the session code.
             </p>
 
-            <form onSubmit={handleStart} className="space-y-3 pt-2">
+            <form onSubmit={handleStart} className="space-y-3 pt-1">
               <div className="space-y-1">
                 <label className="text-[9px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Lecture Topic</label>
                 <input
@@ -115,26 +119,26 @@ export const Dashboard: React.FC = () => {
                   placeholder={profile.defaultTitle || "e.g. Organic Chemistry"}
                   value={lectureTitle}
                   onChange={(e) => setLectureTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold py-2.5 rounded text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="w-full h-11 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold rounded-lg text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
-                <Mic size={14} /> Start Live Session
+                <Mic size={15} /> Start Live Session
               </button>
             </form>
           </div>
         </div>
 
         {/* Right columns (2/3): Session History */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="border border-[var(--border)] rounded bg-[var(--surface)] p-6 text-left flex flex-col min-h-[400px]">
+        <div className="md:col-span-2">
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left flex flex-col min-h-[350px] md:min-h-[400px]">
             <div className="border-b border-[var(--border)] pb-3 mb-4 flex justify-between items-center">
-              <h2 className="text-sm font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-                <BookOpen size={16} /> Lecture History ({sessions.length})
+              <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
+                <BookOpen size={14} /> Lecture History ({sessions.length})
               </h2>
             </div>
 
@@ -142,39 +146,49 @@ export const Dashboard: React.FC = () => {
               <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] py-12">
                 <Clock size={32} className="stroke-1 mb-2 text-[var(--text-muted)]" />
                 <p className="text-xs font-semibold">No lectures recorded yet</p>
-                <p className="text-[10px] mt-0.5 text-center">Your live-transcribed lectures and summaries will populate here.</p>
+                <p className="text-[10px] mt-1 text-center">Your live-transcribed lectures and summaries will populate here.</p>
               </div>
             ) : (
-              <div className="space-y-3 overflow-y-auto max-h-[450px] pr-1">
+              <div className="space-y-2.5 overflow-y-auto max-h-[55vh] pr-1">
                 {sessions.map((session) => (
                   <div
                     key={session.id}
-                    className="flex justify-between items-center p-4 border border-[var(--border)] rounded hover:bg-[var(--background)] bg-[var(--surface)] transition-all group"
+                    className={`flex justify-between items-center p-3.5 border rounded-lg hover:bg-[var(--background)] transition-all group ${
+                      session.isActive
+                        ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                        : "border-[var(--border)] bg-[var(--surface)]"
+                    }`}
                   >
                     <button
                       onClick={() => handleSelectSession(session)}
-                      className="flex-1 text-left cursor-pointer"
+                      className="flex-1 text-left cursor-pointer min-w-0 pr-2"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-sm text-[var(--text)] group-hover:text-[var(--primary)] transition-colors truncate">
                           {session.title}
                         </h4>
-                        <span className="text-[10px] font-mono border border-[var(--border)] rounded px-1.5 py-0.2 text-[var(--text-muted)]">
+                        <span className="text-[10px] font-mono border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--text-muted)] shrink-0">
                           {session.code}
                         </span>
+                        {session.isActive && (
+                          <span className="text-[9px] font-mono font-bold bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] animate-ping" />
+                            LIVE • RESUME CLASS
+                          </span>
+                        )}
                       </div>
-                      <div className="flex items-center gap-4 mt-2 text-[10px] text-[var(--text-muted)] font-mono">
+                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-[var(--text-muted)] font-mono flex-wrap">
                         <span className="flex items-center gap-1">
                           <Calendar size={10} /> {session.date}
                         </span>
-                        <span>•</span>
-                        <span>{session.conceptCards.length} concept cards generated</span>
+                        <span className="hidden sm:inline">•</span>
+                        <span className="hidden sm:inline">{session.conceptCards.length} concept cards generated</span>
                       </div>
                     </button>
 
                     <button
                       onClick={() => deleteSession(session.id)}
-                      className="p-2 text-[var(--text-muted)] hover:text-red-500 rounded transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                      className="p-2 h-9 w-9 flex items-center justify-center text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors cursor-pointer shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                       aria-label="Delete saved session"
                     >
                       <Trash2 size={14} />

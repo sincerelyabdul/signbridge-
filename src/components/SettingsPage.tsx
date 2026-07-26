@@ -41,7 +41,7 @@ export const SettingsPage: React.FC = () => {
     }
 
     const cleanKeyword = keyword.trim();
-    
+
     // Check duplicates
     if (profile.customVocab.some(t => t.keyword.toLowerCase() === cleanKeyword.toLowerCase())) {
       setVocabError("This term already exists in your vocabulary");
@@ -75,65 +75,63 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
-      
+
       {/* Header */}
-      <header className="border-b border-[var(--border)] px-6 py-4 flex justify-between items-center bg-[var(--surface)]">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="p-1.5 border border-[var(--border)] rounded hover:bg-[var(--background)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)] cursor-pointer"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft size={14} />
-          </button>
-          <span className="font-bold text-2xl tracking-tight select-none">
-            sign<span className="text-[var(--primary)]">bridge</span><span className="text-[var(--primary)] font-black text-3xl">.</span>
-          </span>
-          <span className="h-4 w-px bg-[var(--border)]"></span>
-          <span className="text-xs text-[var(--text-muted)]">Lecturer Settings</span>
-        </div>
+      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 bg-[var(--surface)] sticky top-0 z-30">
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="h-9 w-9 flex items-center justify-center border border-[var(--border)] rounded-lg hover:bg-[var(--background)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)] cursor-pointer shrink-0"
+          aria-label="Back to dashboard"
+        >
+          <ArrowLeft size={14} />
+        </button>
+        <span className="font-bold text-xl sm:text-2xl tracking-tight select-none">
+          sign<span className="text-[var(--primary)]">bridge</span><span className="text-[var(--primary)] font-black text-2xl sm:text-3xl">.</span>
+        </span>
+        <span className="h-4 w-px bg-[var(--border)] hidden sm:block"></span>
+        <span className="text-xs text-[var(--text-muted)] hidden sm:block">Lecturer Settings</span>
       </header>
 
       {/* Main Grid */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8 grid grid-cols-1 md:grid-cols-5 gap-8 items-start">
-        
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 md:grid-cols-5 gap-6 sm:gap-8 items-start">
+
         {/* Left Column (2/5): Profile Configurations */}
         <div className="md:col-span-2 space-y-6">
-          <div className="border border-[var(--border)] rounded bg-[var(--surface)] p-6 text-left space-y-4">
-            <h2 className="text-sm font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-              <User size={16} /> Profile Settings
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
+            <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
+              <User size={14} /> Profile Settings
             </h2>
 
-            <form onSubmit={handleSaveProfile} className="space-y-4 pt-2">
-              <div className="space-y-1">
+            <form onSubmit={handleSaveProfile} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Lecturer Name</label>
                 <input
                   type="text"
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">School / Institution</label>
                 <input
                   type="text"
                   required
                   value={institution}
                   onChange={(e) => setInstitution(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Default Lecture Topic</label>
                 <input
                   type="text"
                   value={defaultTitle}
                   onChange={(e) => setDefaultTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
               </div>
 
@@ -143,7 +141,7 @@ export const SettingsPage: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full bg-[var(--text)] hover:bg-[var(--text-muted)] text-[var(--background)] font-medium py-2 rounded text-xs transition-colors cursor-pointer"
+                className="w-full h-11 bg-[var(--text)] hover:bg-[var(--text-muted)] text-[var(--background)] font-medium rounded-lg text-sm transition-colors cursor-pointer"
               >
                 Save Settings
               </button>
@@ -153,18 +151,18 @@ export const SettingsPage: React.FC = () => {
 
         {/* Right Column (3/5): Vocabulary Management */}
         <div className="md:col-span-3 space-y-6">
-          
+
           {/* Add custom term form */}
-          <div className="border border-[var(--border)] rounded bg-[var(--surface)] p-6 text-left space-y-4">
-            <h2 className="text-sm font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-              <Library size={16} /> Add Custom Classroom Vocabulary
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
+            <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
+              <Library size={14} /> Add Custom Classroom Vocabulary
             </h2>
             <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
               Define specialized technical terms or localized concepts. When spoken, the AI Context Engine will push these definitions immediately to student screens.
             </p>
 
-            <form onSubmit={handleAddTerm} className="space-y-3 pt-2">
-              <div className="space-y-1">
+            <form onSubmit={handleAddTerm} className="space-y-3 pt-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Keyword Trigger</label>
                 <input
                   type="text"
@@ -172,44 +170,44 @@ export const SettingsPage: React.FC = () => {
                   placeholder="e.g. Retrieval Augmented Generation"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs font-mono"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm font-mono transition-colors"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Aliases / Acronyms (Comma-separated, optional)</label>
                 <input
                   type="text"
                   placeholder="e.g. RAG, R.A.G., GenAI"
                   value={aliases}
                   onChange={(e) => setAliases(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs font-mono"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm font-mono transition-colors"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Concept Definition</label>
                 <textarea
                   required
                   placeholder="A simple definition for students (e.g. Organelles in plant cells that perform photosynthesis)."
                   value={definition}
                   onChange={(e) => setDefinition(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs h-16 resize-none"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm h-20 resize-none transition-colors"
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Additional Context / Analogy (Optional)</label>
                 <textarea
                   placeholder="Additional context, chemical equation, or memorable analogy."
                   value={details}
                   onChange={(e) => setDetails(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs h-16 resize-none"
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm h-20 resize-none transition-colors"
                 />
               </div>
 
               {vocabError && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded text-xs flex gap-2 items-start">
+                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg text-xs flex gap-2 items-start">
                   <AlertCircle size={14} className="mt-0.5 shrink-0" />
                   <span>{vocabError}</span>
                 </div>
@@ -217,7 +215,7 @@ export const SettingsPage: React.FC = () => {
 
               <button
                 type="submit"
-                className="bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold py-2 px-4 rounded text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full sm:w-auto h-10 px-5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Plus size={14} /> Add Keyword Trigger
               </button>
@@ -225,36 +223,36 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           {/* List of custom terms */}
-          <div className="border border-[var(--border)] rounded bg-[var(--surface)] p-6 text-left flex flex-col min-h-[300px]">
-            <h2 className="text-sm font-bold tracking-wider uppercase text-[var(--text-muted)] mb-4">
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left flex flex-col min-h-[200px]">
+            <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] mb-4">
               Your Custom Vocabulary Terms ({profile.customVocab.length})
             </h2>
 
             {profile.customVocab.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] py-12">
+              <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] py-10">
                 <Sparkles size={24} className="stroke-1 mb-2 text-[var(--text-muted)]" />
                 <p className="text-xs font-semibold">No custom vocabulary added yet</p>
                 <p className="text-[10px] mt-0.5 text-center">Add keywords above to populate your classroom dictionary.</p>
               </div>
             ) : (
-              <div className="space-y-3 overflow-y-auto max-h-[350px] pr-1">
+              <div className="space-y-3 overflow-y-auto max-h-[50vh] pr-1">
                 {profile.customVocab.map((term) => (
                   <div
                     key={term.keyword}
-                    className="flex justify-between items-start p-4 border border-[var(--border)] rounded bg-[var(--background)] group"
+                    className="flex justify-between items-start p-4 border border-[var(--border)] rounded-lg bg-[var(--background)] group"
                   >
-                    <div className="space-y-1 flex-1 pr-4">
+                    <div className="space-y-1 flex-1 pr-3 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-sm text-[var(--text)] capitalize font-mono">{term.keyword}</h4>
                         {term.aliases && (
-                          <span className="text-[9px] font-mono border border-[var(--border)] rounded px-1.5 py-0.2 bg-[var(--surface)] text-[var(--text-muted)] font-semibold">
+                          <span className="text-[9px] font-mono border border-[var(--border)] rounded px-1.5 py-0.5 bg-[var(--surface)] text-[var(--text-muted)] font-semibold">
                             Aliases: {term.aliases}
                           </span>
                         )}
                       </div>
                       <p className="text-xs text-[var(--text-muted)] leading-relaxed">{term.definition}</p>
                       {term.details && (
-                        <p className="text-[10px] text-[var(--text-muted)] italic font-mono pt-1">
+                        <p className="text-[10px] text-[var(--text-muted)] italic font-mono pt-0.5">
                           Context: {term.details}
                         </p>
                       )}
@@ -262,7 +260,7 @@ export const SettingsPage: React.FC = () => {
 
                     <button
                       onClick={() => handleDeleteTerm(term.keyword)}
-                      className="p-1.5 text-[var(--text-muted)] hover:text-red-500 rounded transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer shrink-0"
+                      className="h-9 w-9 flex items-center justify-center text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors cursor-pointer shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                       aria-label="Delete vocabulary term"
                     >
                       <Trash2 size={14} />

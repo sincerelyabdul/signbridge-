@@ -26,6 +26,7 @@ export interface Session {
   conceptCards: ConceptCard[];
   summary: string | null;
   customVocab: CustomTerm[];
+  isActive?: boolean;
 }
 
 export interface CustomTerm {
@@ -114,7 +115,7 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { data, error } = await supabase
         .from("sessions")
         .select(`
-          id, code, title, date, summary, custom_vocab,
+          id, code, title, date, summary, is_active, custom_vocab,
           transcripts(id, text, timestamp),
           concept_cards(id, concept, definition, details, timestamp)
         `)
@@ -147,7 +148,8 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }))
             .sort((a: any, b: any) => a.timestamp - b.timestamp),
           summary: s.summary,
-          customVocab: s.custom_vocab || []
+          customVocab: s.custom_vocab || [],
+          isActive: s.is_active
         }));
         setSessions(formatted);
         localStorage.setItem("sb_sessions", JSON.stringify(formatted));
@@ -296,10 +298,13 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       transcript: [],
       conceptCards: [],
       summary: null,
-      customVocab: [...profile.customVocab]
+      customVocab: [...profile.customVocab],
+      isActive: true
     };
 
     setActiveSession(newSession);
+    setSessions((prev) => [newSession, ...prev.filter(s => s.id !== newSession.id)]);
+    localStorage.setItem("sb_active_session", JSON.stringify(newSession));
     setSessionCode(code);
     setUserRole("lecturer");
     setIsRecording(true);
@@ -425,8 +430,15 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // Realtime Subscription
       if (targetData.is_active) {
-        const channel = supabase
-          .channel(`session_feed_${targetData.id}`)
+        if (channelRef.current) {
+          try { supabase.removeChannel(channelRef.current); } catch (_) {}
+          channelRef.current = null;
+        }
+
+        const channelTopic = `session_feed_${targetData.id}_${Date.now()}`;
+        const channel = supabase.channel(channelTopic);
+
+        channel
           .on(
             "postgres_changes",
             { event: "INSERT", schema: "public", table: "transcripts", filter: `session_id=eq.${targetData.id}` },
@@ -480,15 +492,46 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addMockTranscriptLine = async (text: string) => {
     if (!activeSession) return;
+    const cleanText = text.trim();
+    if (!cleanText) return;
 
-    const lineId = crypto.randomUUID();
-    const newLine: TranscriptLine = {
-      id: lineId,
-      text,
-      timestamp: Date.now()
-    };
+    const transcriptCopy = [...activeSession.transcript];
+    const lastIndex = transcriptCopy.length - 1;
+    const lastLine = lastIndex >= 0 ? transcriptCopy[lastIndex] : null;
 
-    const updatedTranscript = [...activeSession.transcript, newLine];
+    let lineId = crypto.randomUUID();
+    let isUpdate = false;
+
+    // Deduplication check: if new text is an extension or duplicate of the last line within 10 seconds
+    if (lastLine && Date.now() - lastLine.timestamp < 10000) {
+      const lastClean = lastLine.text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const newClean = cleanText.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      if (lastClean === newClean) {
+        return; // Exact duplicate -> ignore
+      }
+
+      if (newClean.startsWith(lastClean) || (cleanText.length > lastLine.text.length && newClean.includes(lastClean.slice(0, Math.min(20, lastClean.length))))) {
+        // Updated/extended version of previous line -> replace last line
+        transcriptCopy[lastIndex] = {
+          ...lastLine,
+          text: cleanText,
+          timestamp: Date.now()
+        };
+        lineId = lastLine.id;
+        isUpdate = true;
+      }
+    }
+
+    if (!isUpdate) {
+      transcriptCopy.push({
+        id: lineId,
+        text: cleanText,
+        timestamp: Date.now()
+      });
+    }
+
+    const updatedTranscript = transcriptCopy;
     const updatedCards = [...activeSession.conceptCards];
 
     // Vocabulary trigger logic: match against session's custom vocabulary!
@@ -537,6 +580,10 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setActiveSession(updatedSession);
+    setSessions((prev) => prev.map(s => s.id === updatedSession.id ? updatedSession : s));
+    if (updatedSession.isActive) {
+      localStorage.setItem("sb_active_session", JSON.stringify(updatedSession));
+    }
 
     // Sync to Supabase in background
     if (!isPlaceholder) {
@@ -601,10 +648,13 @@ Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
 
     const finalSession: Session = {
       ...activeSession,
-      summary: mockSummary
+      summary: mockSummary,
+      isActive: false
     };
 
     setActiveSession(finalSession);
+    setSessions((prev) => prev.map(s => s.id === finalSession.id ? finalSession : s));
+    localStorage.removeItem("sb_active_session");
 
     // Sync end session state to Supabase
     if (!isPlaceholder) {
@@ -616,7 +666,7 @@ Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
             is_active: false
           })
           .eq("id", activeSession.id);
-        
+
         if (user) await fetchHistory(user.id);
       } catch (e) {
         console.error("Failed to end session in Supabase:", e);
@@ -767,6 +817,11 @@ Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
 
   const loadSessionDetails = async (sessionId: string): Promise<Session | null> => {
     if (isPlaceholder) {
+      const activeStored = localStorage.getItem("sb_active_session");
+      if (activeStored) {
+        const parsed = JSON.parse(activeStored);
+        if (parsed.id === sessionId) return parsed;
+      }
       const matched = sessions.find(s => s.id === sessionId) || activeSession;
       return matched;
     }
@@ -807,7 +862,8 @@ Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
           }))
           .sort((a: any, b: any) => a.timestamp - b.timestamp),
         summary: data.summary,
-        customVocab: data.custom_vocab || []
+        customVocab: data.custom_vocab || [],
+        isActive: data.is_active
       };
     } catch (e) {
       console.error("Error loading session detail:", e);
