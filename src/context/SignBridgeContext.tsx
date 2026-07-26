@@ -1,0 +1,886 @@
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabaseClient";
+
+export type Role = "lecturer" | "student" | null;
+
+export interface TranscriptLine {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
+export interface ConceptCard {
+  id: string;
+  concept: string;
+  definition: string;
+  details: string;
+  timestamp: number;
+}
+
+export interface Session {
+  id: string;
+  code: string;
+  title: string;
+  date: string;
+  transcript: TranscriptLine[];
+  conceptCards: ConceptCard[];
+  summary: string | null;
+  customVocab: CustomTerm[];
+}
+
+export interface CustomTerm {
+  keyword: string;
+  definition: string;
+  details: string;
+  aliases?: string;
+}
+
+export interface UserProfile {
+  fullName: string;
+  institution: string;
+  customVocab: CustomTerm[];
+  defaultTitle: string;
+}
+
+interface SignBridgeContextType {
+  userRole: Role;
+  setUserRole: (role: Role) => void;
+  sessionCode: string | null;
+  sessions: Session[];
+  activeSession: Session | null;
+  setActiveSession: React.Dispatch<React.SetStateAction<Session | null>>;
+  isRecording: boolean;
+  fontSize: "sm" | "md" | "lg" | "xl";
+  setFontSize: (size: "sm" | "md" | "lg" | "xl") => void;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
+  startSession: (title: string) => Promise<string | null>;
+  joinSession: (code: string) => Promise<{ success: boolean; isActive?: boolean; sessionId?: string; error?: string }>;
+  toggleRecording: () => void;
+  endSession: () => Promise<string | null>;
+  deleteSession: (id: string) => Promise<void>;
+  addMockTranscriptLine: (text: string) => Promise<void>;
+  selectHistorySession: (session: Session) => void;
+  clearActiveSession: () => void;
+  addSessionVocab: (term: CustomTerm) => Promise<void>;
+  
+  // Auth
+  user: any | null;
+  profile: UserProfile;
+  isAuthLoading: boolean;
+  login: (email: string, password?: string, isDemo?: boolean) => Promise<{ success: boolean; error?: string }>;
+  signup: (email: string, password?: string, name?: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
+  loadSessionDetails: (sessionId: string) => Promise<Session | null>;
+  isPlaceholder: boolean;
+}
+
+const SignBridgeContext = createContext<SignBridgeContextType | undefined>(undefined);
+
+const offlineSync = typeof window !== "undefined" ? new BroadcastChannel("sb_offline_sync") : null;
+
+
+
+export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [userRole, setUserRole] = useState<Role>(null);
+  const [sessionCode, setSessionCode] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [fontSize, setFontSize] = useState<"sm" | "md" | "lg" | "xl">("md");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  // Auth & Profile
+  const [user, setUser] = useState<any | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [profile, setProfile] = useState<UserProfile>({
+    fullName: "Guest Lecturer",
+    institution: "SignBridge Academy",
+    customVocab: [],
+    defaultTitle: "General Science Lecture"
+  });
+
+  const channelRef = useRef<any>(null);
+
+  const isPlaceholder = 
+    !import.meta.env.VITE_SUPABASE_URL || 
+    import.meta.env.VITE_SUPABASE_URL.includes("your-project-reference");
+
+  // Fetch lecturer session history from Supabase
+  const fetchHistory = async (userId: string) => {
+    if (isPlaceholder) return;
+    try {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select(`
+          id, code, title, date, summary, custom_vocab,
+          transcripts(id, text, timestamp),
+          concept_cards(id, concept, definition, details, timestamp)
+        `)
+        .eq("lecturer_id", userId)
+        .order("date", { ascending: false });
+
+      if (error) throw error;
+      if (data) {
+        const formatted: Session[] = data.map((s: any) => ({
+          id: s.id,
+          code: s.code,
+          title: s.title,
+          date: new Date(s.date).toLocaleDateString("en-US", {
+            month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
+          }),
+          transcript: (s.transcripts || [])
+            .map((t: any) => ({
+              id: t.id,
+              text: t.text,
+              timestamp: new Date(t.timestamp).getTime()
+            }))
+            .sort((a: any, b: any) => a.timestamp - b.timestamp),
+          conceptCards: (s.concept_cards || [])
+            .map((c: any) => ({
+              id: c.id,
+              concept: c.concept,
+              definition: c.definition,
+              details: c.details,
+              timestamp: new Date(c.timestamp).getTime()
+            }))
+            .sort((a: any, b: any) => a.timestamp - b.timestamp),
+          summary: s.summary,
+          customVocab: s.custom_vocab || []
+        }));
+        setSessions(formatted);
+        localStorage.setItem("sb_sessions", JSON.stringify(formatted));
+      }
+    } catch (e) {
+      console.error("Error fetching sessions history:", e);
+    }
+  };
+
+  // Fetch lecturer profile details
+  const fetchProfile = async (userId: string) => {
+    if (isPlaceholder) return;
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("full_name, institution, default_title, custom_vocab")
+        .eq("id", userId)
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setProfile({
+          fullName: data.full_name || "Lecturer",
+          institution: data.institution || "SignBridge Academy",
+          defaultTitle: data.default_title || "General Science Lecture",
+          customVocab: data.custom_vocab || []
+        });
+      }
+    } catch (e) {
+      console.error("Error fetching user profile:", e);
+    }
+  };
+
+  // Initialize Auth
+  useEffect(() => {
+    const initAuth = async () => {
+      setIsAuthLoading(true);
+      try {
+        if (!isPlaceholder) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            setUser(session.user);
+            await fetchProfile(session.user.id);
+            await fetchHistory(session.user.id);
+          }
+
+          supabase.auth.onAuthStateChange(async (_event, session) => {
+            setUser(session?.user ?? null);
+            if (session?.user) {
+              await fetchProfile(session.user.id);
+              await fetchHistory(session.user.id);
+            } else {
+              setProfile({
+                fullName: "Guest Lecturer",
+                institution: "SignBridge Academy",
+                customVocab: [],
+                defaultTitle: "General Science Lecture"
+              });
+              setSessions([]);
+            }
+          });
+        } else {
+          // Local storage session mock
+          const mockUser = localStorage.getItem("sb_mock_user");
+          if (mockUser) {
+            const parsed = JSON.parse(mockUser);
+            setUser(parsed);
+            const savedProfile = localStorage.getItem(`sb_profile_${parsed.id}`);
+            if (savedProfile) setProfile(JSON.parse(savedProfile));
+          }
+        }
+      } catch (e) {
+        console.error("Auth init exception:", e);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // Cleanup channels on unmount
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+    };
+  }, []);
+
+  // BroadcastChannel synchronization for offline tab communication
+  useEffect(() => {
+    if (!offlineSync) return;
+
+    const handleOfflineMessage = (event: MessageEvent) => {
+      const { type, sessionId, line, conceptCard } = event.data;
+      
+      setActiveSession((prev) => {
+        if (!prev || prev.id !== sessionId) return prev;
+        
+        if (type === "TRANSCRIPT" && line) {
+          if (prev.transcript.some(t => t.id === line.id)) return prev;
+          return {
+            ...prev,
+            transcript: [...prev.transcript, line]
+          };
+        }
+        
+        if (type === "CONCEPT_CARD" && conceptCard) {
+          if (prev.conceptCards.some(c => c.id === conceptCard.id)) return prev;
+          return {
+            ...prev,
+            conceptCards: [...prev.conceptCards, conceptCard]
+          };
+        }
+        
+        return prev;
+      });
+    };
+
+    offlineSync.addEventListener("message", handleOfflineMessage);
+    return () => {
+      offlineSync.removeEventListener("message", handleOfflineMessage);
+    };
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    localStorage.setItem("sb_theme", nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+  };
+
+  const toggleRecording = () => {
+    setIsRecording(!isRecording);
+  };
+
+  const startSession = async (title: string): Promise<string | null> => {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const sessionId = crypto.randomUUID();
+    const cleanTitle = title || profile.defaultTitle || "Biology Lecture 101";
+
+    const newSession: Session = {
+      id: sessionId,
+      code,
+      title: cleanTitle,
+      date: new Date().toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
+      }),
+      transcript: [],
+      conceptCards: [],
+      summary: null,
+      customVocab: [...profile.customVocab]
+    };
+
+    setActiveSession(newSession);
+    setSessionCode(code);
+    setUserRole("lecturer");
+    setIsRecording(true);
+
+    // Sync to Supabase
+    if (!isPlaceholder && user) {
+      try {
+        await supabase.from("sessions").insert({
+          id: sessionId,
+          lecturer_id: user.id,
+          code,
+          title: cleanTitle,
+          is_active: true,
+          custom_vocab: newSession.customVocab
+        });
+      } catch (e) {
+        console.error("Failed to insert session into Supabase:", e);
+      }
+    }
+    return sessionId;
+  };
+
+  const joinSession = async (code: string): Promise<{ success: boolean; isActive?: boolean; sessionId?: string; error?: string }> => {
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    if (isPlaceholder) {
+      // Local check
+      if (activeSession && activeSession.code === code) {
+        setUserRole("student");
+        return { success: true, isActive: true, sessionId: activeSession.id };
+      }
+      const matched = sessions.find((s) => s.code === code);
+      if (matched) {
+        setActiveSession(matched);
+        setUserRole("student");
+        return { success: true, isActive: false, sessionId: matched.id };
+      }
+      if (code.length === 6) {
+        const mockId = crypto.randomUUID();
+        const mock: Session = {
+          id: mockId,
+          code,
+          title: "Live Lecture (Offline Mode)",
+          date: "Just now",
+          transcript: [],
+          conceptCards: [],
+          summary: null,
+          customVocab: []
+        };
+        setActiveSession(mock);
+        setUserRole("student");
+        return { success: true, isActive: true, sessionId: mockId };
+      }
+      return { success: false, error: "Session not found." };
+    }
+
+    // Connect to Live Supabase session
+    try {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select(`
+          id, code, title, date, summary, is_active, custom_vocab,
+          transcripts(id, text, timestamp),
+          concept_cards(id, concept, definition, details, timestamp)
+        `)
+        .eq("code", code)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      let targetData = data;
+      if (!targetData) {
+        const { data: archivedData, error: archError } = await supabase
+          .from("sessions")
+          .select(`
+            id, code, title, date, summary, is_active, custom_vocab,
+            transcripts(id, text, timestamp),
+            concept_cards(id, concept, definition, details, timestamp)
+          `)
+          .eq("code", code)
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (archError) throw archError;
+        targetData = archivedData;
+      }
+
+      if (!targetData) {
+        return { success: false, error: "Room code not found." };
+      }
+
+      const joinedSession: Session = {
+        id: targetData.id,
+        code: targetData.code,
+        title: targetData.title,
+        date: new Date(targetData.date).toLocaleDateString(),
+        transcript: (targetData.transcripts || [])
+          .map((t: any) => ({
+            id: t.id,
+            text: t.text,
+            timestamp: new Date(t.timestamp).getTime()
+          }))
+          .sort((a: any, b: any) => a.timestamp - b.timestamp),
+        conceptCards: (targetData.concept_cards || [])
+          .map((c: any) => ({
+            id: c.id,
+            concept: c.concept,
+            definition: c.definition,
+            details: c.details,
+            timestamp: new Date(c.timestamp).getTime()
+          }))
+          .sort((a: any, b: any) => a.timestamp - b.timestamp),
+        summary: targetData.summary,
+        customVocab: targetData.custom_vocab || []
+      };
+
+      setActiveSession(joinedSession);
+      setUserRole("student");
+
+      // Realtime Subscription
+      if (targetData.is_active) {
+        const channel = supabase
+          .channel(`session_feed_${targetData.id}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "transcripts", filter: `session_id=eq.${targetData.id}` },
+            (payload) => {
+              const newL: TranscriptLine = {
+                id: payload.new.id,
+                text: payload.new.text,
+                timestamp: new Date(payload.new.timestamp).getTime()
+              };
+              setActiveSession((prev) => {
+                if (!prev || prev.id !== targetData.id) return prev;
+                if (prev.transcript.some(t => t.id === newL.id)) return prev;
+                return {
+                  ...prev,
+                  transcript: [...prev.transcript, newL]
+                };
+              });
+            }
+          )
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "concept_cards", filter: `session_id=eq.${targetData.id}` },
+            (payload) => {
+              const newC: ConceptCard = {
+                id: payload.new.id,
+                concept: payload.new.concept,
+                definition: payload.new.definition,
+                details: payload.new.details,
+                timestamp: new Date(payload.new.timestamp).getTime()
+              };
+              setActiveSession((prev) => {
+                if (!prev || prev.id !== targetData.id) return prev;
+                if (prev.conceptCards.some(c => c.id === newC.id)) return prev;
+                return {
+                  ...prev,
+                  conceptCards: [...prev.conceptCards, newC]
+                };
+              });
+            }
+          )
+          .subscribe();
+
+        channelRef.current = channel;
+      }
+      return { success: true, isActive: targetData.is_active, sessionId: targetData.id };
+    } catch (e: any) {
+      console.error("Error joining live session from Supabase:", e);
+      return { success: false, error: e.message || "Failed to join session" };
+    }
+  };
+
+  const addMockTranscriptLine = async (text: string) => {
+    if (!activeSession) return;
+
+    const lineId = crypto.randomUUID();
+    const newLine: TranscriptLine = {
+      id: lineId,
+      text,
+      timestamp: Date.now()
+    };
+
+    const updatedTranscript = [...activeSession.transcript, newLine];
+    const updatedCards = [...activeSession.conceptCards];
+
+    // Vocabulary trigger logic: match against session's custom vocabulary!
+    const mergedVocabulary = activeSession.customVocab;
+
+    const lowerText = text.toLowerCase();
+    let detectedVocab: any = null;
+
+    mergedVocabulary.forEach((vocab) => {
+      const keywordLower = vocab.keyword.toLowerCase();
+      let isMatched = lowerText.includes(keywordLower);
+
+      if (!isMatched && vocab.aliases) {
+        const aliasList = vocab.aliases.split(",").map(a => a.trim().toLowerCase());
+        isMatched = aliasList.some(alias => {
+          if (!alias) return false;
+          const escapedAlias = alias.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const regex = new RegExp(`\\b${escapedAlias}\\b`, 'i');
+          return regex.test(text);
+        });
+      }
+
+      if (isMatched) {
+        const alreadyExists = updatedCards.some(
+          (c) => c.concept.toLowerCase() === keywordLower || 
+                 (vocab.aliases && vocab.aliases.split(",").map(a => a.trim().toLowerCase()).includes(c.concept.toLowerCase()))
+        );
+        if (!alreadyExists) {
+          detectedVocab = vocab;
+          const conceptTitle = vocab.keyword;
+          updatedCards.push({
+            id: crypto.randomUUID(),
+            concept: conceptTitle,
+            definition: vocab.definition,
+            details: vocab.details,
+            timestamp: Date.now()
+          });
+        }
+      }
+    });
+
+    const updatedSession = {
+      ...activeSession,
+      transcript: updatedTranscript,
+      conceptCards: updatedCards
+    };
+
+    setActiveSession(updatedSession);
+
+    // Sync to Supabase in background
+    if (!isPlaceholder) {
+      try {
+        await supabase.from("transcripts").insert({
+          id: lineId,
+          session_id: activeSession.id,
+          text
+        });
+
+        if (detectedVocab) {
+          await supabase.from("concept_cards").insert({
+            session_id: activeSession.id,
+            concept: detectedVocab.keyword,
+            definition: detectedVocab.definition,
+            details: detectedVocab.details
+          });
+        }
+      } catch (e) {
+        console.error("Failed to sync transcript/cards to Supabase:", e);
+      }
+    } else {
+      // Broadcast to other tabs for offline simulation
+      if (offlineSync && activeSession) {
+        offlineSync.postMessage({
+          type: "TRANSCRIPT",
+          sessionId: activeSession.id,
+          line: newLine
+        });
+        
+        if (detectedVocab) {
+          const matchingCard = updatedCards[updatedCards.length - 1];
+          offlineSync.postMessage({
+            type: "CONCEPT_CARD",
+            sessionId: activeSession.id,
+            conceptCard: matchingCard
+          });
+        }
+      }
+    }
+  };
+
+  const endSession = async (): Promise<string | null> => {
+    if (!activeSession) return null;
+
+    setIsRecording(false);
+
+    const conceptsDiscussed = activeSession.conceptCards.map(c => c.concept).join(", ") || "None";
+    const transcriptText = activeSession.transcript.map(t => t.text).join(" ") || "No audio recorded.";
+    
+    const mockSummary = `## Lecture Overview
+This lecture focused on topics including: **${conceptsDiscussed}**.
+
+### Core Takeaways
+1. **Interactive Concept Capture**: Students received real-time visual cue cards during the lecture to simplify terminology.
+2. **Key Context Explained**: The session detailed crucial functions, chemical equations, and historic discoveries related to the lecture theme.
+
+### Full Transcript Analysis
+Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
+
+*Summary generated by SignBridge AI Context Engine.*`;
+
+    const finalSession: Session = {
+      ...activeSession,
+      summary: mockSummary
+    };
+
+    setActiveSession(finalSession);
+
+    // Sync end session state to Supabase
+    if (!isPlaceholder) {
+      try {
+        await supabase
+          .from("sessions")
+          .update({
+            summary: mockSummary,
+            is_active: false
+          })
+          .eq("id", activeSession.id);
+        
+        if (user) await fetchHistory(user.id);
+      } catch (e) {
+        console.error("Failed to end session in Supabase:", e);
+      }
+    }
+    return activeSession.id;
+  };
+
+  const deleteSession = async (id: string) => {
+    const updated = sessions.filter((s) => s.id !== id);
+    setSessions(updated);
+    localStorage.setItem("sb_sessions", JSON.stringify(updated));
+
+    if (!isPlaceholder) {
+      try {
+        await supabase.from("sessions").delete().eq("id", id);
+      } catch (e) {
+        console.error("Failed to delete session from Supabase:", e);
+      }
+    }
+
+    if (activeSession && activeSession.id === id) {
+      setActiveSession(null);
+      setSessionCode(null);
+      setUserRole(null);
+    }
+  };
+
+  const selectHistorySession = (session: Session) => {
+    setActiveSession(session);
+  };
+
+  const clearActiveSession = () => {
+    setActiveSession(null);
+    setSessionCode(null);
+    setUserRole(null);
+  };
+
+  // Auth Operations
+  const login = async (email: string, password?: string, isDemo = false): Promise<{ success: boolean; error?: string }> => {
+    if (isDemo || isPlaceholder) {
+      const mockUser = {
+        id: "mock_user_id",
+        email: email || "teacher@school.edu",
+        user_metadata: { full_name: "Dr. Albus Dumbledore" }
+      };
+      setUser(mockUser);
+      localStorage.setItem("sb_mock_user", JSON.stringify(mockUser));
+      
+      const mockProfile = {
+        fullName: "Dr. Albus Dumbledore",
+        institution: "Hogwarts Academy",
+        customVocab: [],
+        defaultTitle: "Defense Against the Dark Arts Lecture"
+      };
+      setProfile(mockProfile);
+      localStorage.setItem("sb_profile_mock_user_id", JSON.stringify(mockProfile));
+      return { success: true };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: password || ""
+      });
+      if (error) throw error;
+      setUser(data.user);
+      await fetchProfile(data.user.id);
+      await fetchHistory(data.user.id);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to log in" };
+    }
+  };
+
+  const signup = async (email: string, password?: string, name?: string): Promise<{ success: boolean; error?: string }> => {
+    if (isPlaceholder) {
+      const mockUser = {
+        id: "mock_user_id",
+        email,
+        user_metadata: { full_name: name || "New Lecturer" }
+      };
+      setUser(mockUser);
+      localStorage.setItem("sb_mock_user", JSON.stringify(mockUser));
+      
+      const mockProfile = {
+        fullName: name || "New Lecturer",
+        institution: "SignBridge Academy",
+        customVocab: [],
+        defaultTitle: "General Science Lecture"
+      };
+      setProfile(mockProfile);
+      localStorage.setItem("sb_profile_mock_user_id", JSON.stringify(mockProfile));
+      return { success: true };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: password || "",
+        options: { data: { full_name: name || "" } }
+      });
+      if (error) throw error;
+      setUser(data.user);
+      
+      setProfile({
+        fullName: name || "New Lecturer",
+        institution: "SignBridge Academy",
+        customVocab: [],
+        defaultTitle: "General Science Lecture"
+      });
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to sign up" };
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    if (!isPlaceholder) {
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    localStorage.removeItem("sb_mock_user");
+  };
+
+  const updateProfile = async (profileUpdates: Partial<UserProfile>) => {
+    const newProfile = { ...profile, ...profileUpdates };
+    setProfile(newProfile);
+    
+    if (user) {
+      localStorage.setItem(`sb_profile_${user.id}`, JSON.stringify(newProfile));
+      
+      if (!isPlaceholder) {
+        try {
+          await supabase.from("profiles").upsert({
+            id: user.id,
+            full_name: newProfile.fullName,
+            institution: newProfile.institution,
+            default_title: newProfile.defaultTitle,
+            custom_vocab: newProfile.customVocab
+          });
+        } catch (e) {
+          console.error("Failed to sync profile to Supabase:", e);
+        }
+      }
+    }
+  };
+
+  const loadSessionDetails = async (sessionId: string): Promise<Session | null> => {
+    if (isPlaceholder) {
+      const matched = sessions.find(s => s.id === sessionId) || activeSession;
+      return matched;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("sessions")
+        .select(`
+          id, code, title, date, summary, is_active, custom_vocab,
+          transcripts(id, text, timestamp),
+          concept_cards(id, concept, definition, details, timestamp)
+        `)
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      return {
+        id: data.id,
+        code: data.code,
+        title: data.title,
+        date: new Date(data.date).toLocaleDateString(),
+        transcript: (data.transcripts || [])
+          .map((t: any) => ({
+            id: t.id,
+            text: t.text,
+            timestamp: new Date(t.timestamp).getTime()
+          }))
+          .sort((a: any, b: any) => a.timestamp - b.timestamp),
+        conceptCards: (data.concept_cards || [])
+          .map((c: any) => ({
+            id: c.id,
+            concept: c.concept,
+            definition: c.definition,
+            details: c.details,
+            timestamp: new Date(c.timestamp).getTime()
+          }))
+          .sort((a: any, b: any) => a.timestamp - b.timestamp),
+        summary: data.summary,
+        customVocab: data.custom_vocab || []
+      };
+    } catch (e) {
+      console.error("Error loading session detail:", e);
+      return null;
+    }
+  };
+
+  const addSessionVocab = async (term: CustomTerm) => {
+    if (!activeSession) return;
+
+    const updatedVocab = [term, ...activeSession.customVocab];
+    const updatedSession = { ...activeSession, customVocab: updatedVocab };
+    
+    setActiveSession(updatedSession);
+    setSessions(prev => prev.map(s => s.id === activeSession.id ? updatedSession : s));
+
+    if (!isPlaceholder) {
+      try {
+        await supabase
+          .from("sessions")
+          .update({ custom_vocab: updatedVocab })
+          .eq("id", activeSession.id);
+      } catch (e) {
+        console.error("Failed to sync session vocabulary update to Supabase:", e);
+      }
+    }
+  };
+
+  return (
+    <SignBridgeContext.Provider
+      value={{
+        userRole,
+        setUserRole,
+        sessionCode,
+        sessions,
+        activeSession,
+        setActiveSession,
+        isRecording,
+        fontSize,
+        setFontSize,
+        theme,
+        toggleTheme,
+        startSession,
+        joinSession,
+        toggleRecording,
+        endSession,
+        deleteSession,
+        addMockTranscriptLine,
+        selectHistorySession,
+        clearActiveSession,
+        addSessionVocab,
+        
+        // Auth values
+        user,
+        profile,
+        isAuthLoading,
+        login,
+        signup,
+        logout,
+        updateProfile,
+        loadSessionDetails,
+        isPlaceholder
+      }}
+    >
+      {children}
+    </SignBridgeContext.Provider>
+  );
+};
+
+export const useSignBridge = () => {
+  const context = useContext(SignBridgeContext);
+  if (context === undefined) {
+    throw new Error("useSignBridge must be used within a SignBridgeProvider");
+  }
+  return context;
+};
