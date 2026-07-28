@@ -97,3 +97,12 @@ button, [role="button"] {
   animation: slideDown 0.2s ease forwards;
 }
 
+@keyframes panelFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-panel-fade {
+  animation: panelFade 0.18s ease forwards;
+}
+

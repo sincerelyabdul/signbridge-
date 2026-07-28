@@ -76,6 +76,8 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onFinalResultRef = useRef(onFinalResult);
   const keywordsRef = useRef(keywords);
+  // Track when the WS was opened to detect immediate closes (auth rejections)
+  const connectionOpenedAtRef = useRef<number | null>(null);
 
   // Sentence Accumulator Buffer — prevents cutting mid-sentence pauses
   const sentenceBufferRef = useRef<string>("");
@@ -187,6 +189,7 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
         closeWs(true);
         return;
       }
+      connectionOpenedAtRef.current = Date.now();
       reconnectAttemptsRef.current = 0;
       setConnectionStatus("connected");
       sentenceBufferRef.current = "";
@@ -286,6 +289,24 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
 
       if (!isActiveRef.current) {
         setConnectionStatus("idle");
+        return;
+      }
+
+      // Detect immediate closes: if the connection lived < 2500ms and closed
+      // with code 1000, Deepgram rejected it (bad/missing API key). No point
+      // retrying — it will fail the same way every time.
+      const lifetime = connectionOpenedAtRef.current
+        ? Date.now() - connectionOpenedAtRef.current
+        : 0;
+      const isImmediateClose = e.code === 1000 && lifetime < 2500;
+
+      if (isImmediateClose) {
+        console.error(
+          `[Deepgram STT] Connection rejected immediately (code ${e.code}, lived ${lifetime}ms). ` +
+          `Check that VITE_DEEPGRAM_API_KEY is set and valid. Stopping retries.`
+        );
+        setConnectionStatus("no-key");
+        isActiveRef.current = false;
         return;
       }
 
