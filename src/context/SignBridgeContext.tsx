@@ -23,7 +23,9 @@ export interface Session {
   title: string;
   date: string;
   transcript: TranscriptLine[];
+  polishedTranscript?: TranscriptLine[];
   conceptCards: ConceptCard[];
+  smartNotes?: string[];
   summary: string | null;
   customVocab: CustomTerm[];
   isActive?: boolean;
@@ -61,6 +63,11 @@ interface SignBridgeContextType {
   endSession: () => Promise<string | null>;
   deleteSession: (id: string) => Promise<void>;
   addMockTranscriptLine: (text: string) => Promise<void>;
+  addGeminiAnalysisResult: (result: {
+    correctedLine?: TranscriptLine;
+    newConceptCards?: ConceptCard[];
+    keyPoints?: string[];
+  }) => void;
   selectHistorySession: (session: Session) => void;
   clearActiveSession: () => void;
   addSessionVocab: (term: CustomTerm) => Promise<void>;
@@ -241,7 +248,7 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!offlineSync) return;
 
     const handleOfflineMessage = (event: MessageEvent) => {
-      const { type, sessionId, line, conceptCard } = event.data;
+      const { type, sessionId, line, conceptCard, notes } = event.data;
       
       setActiveSession((prev) => {
         if (!prev || prev.id !== sessionId) return prev;
@@ -253,12 +260,31 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             transcript: [...prev.transcript, line]
           };
         }
+
+        if (type === "POLISHED_TRANSCRIPT" && line) {
+          const polished = prev.polishedTranscript || [];
+          if (polished.some(t => t.id === line.id)) return prev;
+          return {
+            ...prev,
+            polishedTranscript: [...polished, line]
+          };
+        }
         
         if (type === "CONCEPT_CARD" && conceptCard) {
           if (prev.conceptCards.some(c => c.id === conceptCard.id)) return prev;
           return {
             ...prev,
             conceptCards: [...prev.conceptCards, conceptCard]
+          };
+        }
+
+        if (type === "SMART_NOTES" && notes) {
+          const currentNotes = prev.smartNotes || [];
+          const newNotes = (notes as string[]).filter(n => !currentNotes.includes(n));
+          if (newNotes.length === 0) return prev;
+          return {
+            ...prev,
+            smartNotes: [...currentNotes, ...newNotes]
           };
         }
         
@@ -626,6 +652,70 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const addGeminiAnalysisResult = (result: {
+    correctedLine?: TranscriptLine;
+    newConceptCards?: ConceptCard[];
+    keyPoints?: string[];
+  }) => {
+    if (!activeSession) return;
+
+    setActiveSession((prev) => {
+      if (!prev) return null;
+
+      const currentPolished = prev.polishedTranscript || [];
+      const updatedPolished = result.correctedLine
+        ? [...currentPolished, result.correctedLine]
+        : currentPolished;
+
+      const currentCards = prev.conceptCards || [];
+      const newCards = (result.newConceptCards || []).filter(
+        (nc) => !currentCards.some((c) => c.concept.toLowerCase() === nc.concept.toLowerCase())
+      );
+      const updatedCards = [...currentCards, ...newCards];
+
+      const currentNotes = prev.smartNotes || [];
+      const newNotes = (result.keyPoints || []).filter((kp) => !currentNotes.includes(kp));
+      const updatedNotes = [...currentNotes, ...newNotes];
+
+      const updatedSession: Session = {
+        ...prev,
+        polishedTranscript: updatedPolished,
+        conceptCards: updatedCards,
+        smartNotes: updatedNotes
+      };
+
+      if (updatedSession.isActive) {
+        localStorage.setItem("sb_active_session", JSON.stringify(updatedSession));
+      }
+
+      if (offlineSync) {
+        if (result.correctedLine) {
+          offlineSync.postMessage({
+            type: "POLISHED_TRANSCRIPT",
+            sessionId: prev.id,
+            line: result.correctedLine
+          });
+        }
+        newCards.forEach((card) => {
+          offlineSync.postMessage({
+            type: "CONCEPT_CARD",
+            sessionId: prev.id,
+            conceptCard: card
+          });
+        });
+        if (result.keyPoints && result.keyPoints.length > 0) {
+          offlineSync.postMessage({
+            type: "SMART_NOTES",
+            sessionId: prev.id,
+            notes: result.keyPoints
+          });
+        }
+      }
+
+      return updatedSession;
+    });
+  };
+
   const endSession = async (): Promise<string | null> => {
     if (!activeSession) return null;
 
@@ -912,6 +1002,7 @@ Based on the recorded audio: "${transcriptText.substring(0, 150)}..."
         endSession,
         deleteSession,
         addMockTranscriptLine,
+        addGeminiAnalysisResult,
         selectHistorySession,
         clearActiveSession,
         addSessionVocab,
