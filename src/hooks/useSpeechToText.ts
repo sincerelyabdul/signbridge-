@@ -2,97 +2,168 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type STTEngine = "auto" | "web-speech" | "assemblyai";
+
 interface UseSpeechToTextProps {
   onFinalResult: (text: string) => void;
   keywords?: string[];
+  engine?: STTEngine;
 }
 
-type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error" | "no-key";
+export type ConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "error"
+  | "no-key";
 
-// ─── Deepgram WebSocket STT ───────────────────────────────────────────────────
-// Optimized for educational classrooms & lectures:
-//   • endpointing=2500ms + sentence buffering → prevents cutting sentences during lecturer pauses
-//   • keywords boosting → passes session vocabulary to Deepgram Nova-3 model for high accuracy
-//   • smart_format + punctuate → accurate capitalization, numbers, and grammar formatting
-//   • Exponential backoff auto-reconnect on WebSocket disconnects
+// Web Speech API type definitions for browser compatibility
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message?: string;
+}
 
-const DEEPGRAM_API_KEY = import.meta.env.VITE_DEEPGRAM_API_KEY as string | undefined;
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
 
-const buildWsUrl = (keywords?: string[]) => {
-  let url =
-    `wss://api.deepgram.com/v1/listen?` +
-    `model=nova-3` +
-    `&language=en` +
-    `&punctuate=true` +
-    `&smart_format=true` +
-    `&interim_results=true` +
-    `&endpointing=2500` +
-    `&utterance_end_ms=2500` +
-    `&vad_events=true` +
-    `&filler_words=false`;
+declare global {
+  interface Window {
+    SpeechRecognition?: any;
+    webkitSpeechRecognition?: any;
+  }
+}
 
-  if (keywords && keywords.length > 0) {
-    keywords.forEach((kw) => {
-      const cleanKw = kw.trim();
-      if (cleanKw) {
-        url += `&keywords=${encodeURIComponent(cleanKw)}:2`;
+// ─── Resampler & Audio Encoder ────────────────────────────────────────────────
+/** Resample Float32 audio to 16kHz PCM Int16Array */
+function resampleAndEncodePCM(
+  inputData: Float32Array,
+  inputSampleRate: number,
+  targetSampleRate = 16000
+): Int16Array {
+  if (inputSampleRate === targetSampleRate) {
+    const pcm = new Int16Array(inputData.length);
+    for (let i = 0; i < inputData.length; i++) {
+      const s = Math.max(-1, Math.min(1, inputData[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return pcm;
+  }
+  const ratio = inputSampleRate / targetSampleRate;
+  const newLength = Math.floor(inputData.length / ratio);
+  const pcm = new Int16Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const originIdx = Math.floor(i * ratio);
+    const s = Math.max(-1, Math.min(1, inputData[originIdx]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return pcm;
+}
+
+// ─── AssemblyAI Streaming v3 WebSocket STT ────────────────────────────────────
+
+const ASSEMBLYAI_API_KEY = import.meta.env.VITE_ASSEMBLYAI_API_KEY as
+  | string
+  | undefined;
+
+/** Fetch temporary streaming token securely from Supabase Edge Function or fallback to local key */
+async function fetchAssemblyAIToken(): Promise<string | null> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  if (supabaseUrl && supabaseAnonKey) {
+    try {
+      const res = await fetch(`${supabaseUrl}/functions/v1/assemblyai-token`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          apikey: supabaseAnonKey,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) return data.token;
       }
-    });
+    } catch (e) {
+      console.warn("[AssemblyAI STT] Edge token fetch fallback to local key:", e);
+    }
+  }
+  return ASSEMBLYAI_API_KEY || null;
+}
+
+/** Build the fully-authenticated, configured WebSocket URL with keyterms_prompt */
+const buildWsUrl = (authToken: string, keywords: string[]): string => {
+  const params = new URLSearchParams({
+    token: authToken,
+    sample_rate: "16000",
+    speech_model: "universal-streaming-english",
+    format_turns: "true",
+    encoding: "pcm_s16le",
+  });
+
+  const cleanKeywords = keywords.map((k) => k.trim()).filter(Boolean);
+  if (cleanKeywords.length > 0) {
+    params.set("keyterms_prompt", JSON.stringify(cleanKeywords));
   }
 
-  return url;
+  return `wss://streaming.assemblyai.com/v3/ws?${params.toString()}`;
 };
 
-const getSupportedMimeType = () => {
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-    "audio/mp4"
-  ];
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) return type;
-  }
-  return "";
-};
-
-const CHUNK_INTERVAL_MS = 200; // send audio chunks every 200 ms
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTextProps) => {
+export const useSpeechToText = ({
+  onFinalResult,
+  keywords = [],
+  engine = "auto",
+}: UseSpeechToTextProps) => {
+  // 1. Primitive State Hooks
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
-    DEEPGRAM_API_KEY ? "idle" : "no-key"
+  const [activeEngine, setActiveEngine] = useState<"web-speech" | "assemblyai">(
+    "web-speech"
   );
 
-  // Stable refs
+  const hasWebSpeech =
+    typeof window !== "undefined" &&
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    hasWebSpeech || ASSEMBLYAI_API_KEY ? "idle" : "no-key"
+  );
+
+  // 2. Stable Ref Hooks
   const wsRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const webSpeechRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+
   const isActiveRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onFinalResultRef = useRef(onFinalResult);
   const keywordsRef = useRef(keywords);
-  // Track when the WS was opened to detect immediate closes (auth rejections)
   const connectionOpenedAtRef = useRef<number | null>(null);
+  const sessionReadyRef = useRef(false);
 
-  // Sentence Accumulator Buffer — prevents cutting mid-sentence pauses
+  // Sentence Accumulator Buffer
   const sentenceBufferRef = useRef<string>("");
   const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep refs current
+  // 3. Keep refs current in Effect Hooks
   useEffect(() => {
     onFinalResultRef.current = onFinalResult;
   }, [onFinalResult]);
-
   useEffect(() => {
     keywordsRef.current = keywords;
   }, [keywords]);
 
-  // Helper to flush sentence buffer to final output
+  // ── Flush sentence buffer to final output ──────────────────────────────────
+
   const flushBuffer = useCallback(() => {
     if (bufferTimerRef.current) {
       clearTimeout(bufferTimerRef.current);
@@ -106,18 +177,31 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
     }
   }, []);
 
-  // ── Teardown helpers ────────────────────────────────────────────────────────
+  // ── Teardown helpers ───────────────────────────────────────────────────────
 
-  const stopRecorder = useCallback(() => {
+  const stopAudioProcessing = useCallback(() => {
+    if (scriptProcessorRef.current) {
+      try {
+        scriptProcessorRef.current.disconnect();
+      } catch (_) { /* ignore */ }
+      scriptProcessorRef.current = null;
+    }
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch (_) { /* ignore */ }
+      sourceNodeRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try {
+        if (audioCtxRef.current.state !== "closed") {
+          audioCtxRef.current.close();
+        }
+      } catch (_) { /* ignore */ }
+      audioCtxRef.current = null;
+    }
     try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop();
-      }
-    } catch (_) { /* ignore */ }
-    mediaRecorderRef.current = null;
-
-    try {
-      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current?.getTracks().forEach((t) => t.stop());
     } catch (_) { /* ignore */ }
     streamRef.current = null;
   }, []);
@@ -134,53 +218,147 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
       wsRef.current.onclose = null;
       try {
         if (wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: "CloseStream" }));
+          wsRef.current.send(JSON.stringify({ terminate_session: true }));
         }
         wsRef.current.close();
       } catch (_) { /* ignore */ }
       wsRef.current = null;
     }
+    sessionReadyRef.current = false;
     if (intentional) {
       reconnectAttemptsRef.current = 0;
     }
   }, []);
 
-  // ── Connect to Deepgram ─────────────────────────────────────────────────────
+  const stopWebSpeech = useCallback(() => {
+    if (webSpeechRef.current) {
+      try {
+        webSpeechRef.current.onstart = null;
+        webSpeechRef.current.onresult = null;
+        webSpeechRef.current.onerror = null;
+        webSpeechRef.current.onend = null;
+        webSpeechRef.current.stop();
+      } catch (_) { /* ignore */ }
+      webSpeechRef.current = null;
+    }
+  }, []);
 
-  const connect = useCallback(async () => {
-    if (!DEEPGRAM_API_KEY) return;
+  // ── Engine 1: Web Speech API (Edge / Chrome Speech Recognition) ───────────
+
+  const connectWebSpeech = useCallback(() => {
+    const SpeechRecognitionAPI =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionAPI) {
+      console.warn("[Speech STT] Web Speech API not supported in this browser.");
+      return false;
+    }
+
+    stopWebSpeech();
+
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.maxAlternatives = 1;
+
+      webSpeechRef.current = recognition;
+
+      recognition.onstart = () => {
+        if (!isActiveRef.current) return;
+        setConnectionStatus("connected");
+        setActiveEngine("web-speech");
+        console.log("[Web Speech STT] Edge/Chrome Speech Recognition active.");
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const transcriptText = result[0].transcript;
+          if (result.isFinal) {
+            const finalClean = transcriptText.trim();
+            if (finalClean) {
+              onFinalResultRef.current(finalClean);
+            }
+          } else {
+            interimText += transcriptText;
+          }
+        }
+        setInterimTranscript(interimText);
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.warn("[Web Speech STT] Error:", event.error);
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setConnectionStatus("error");
+          isActiveRef.current = false;
+        }
+      };
+
+      recognition.onend = () => {
+        if (isActiveRef.current && webSpeechRef.current) {
+          try {
+            recognition.start();
+          } catch (_) { /* ignore */ }
+        } else {
+          setConnectionStatus("idle");
+        }
+      };
+
+      recognition.start();
+      return true;
+    } catch (e) {
+      console.error("[Web Speech STT] Failed to initialize Web Speech API:", e);
+      return false;
+    }
+  }, [stopWebSpeech]);
+
+  // ── Engine 2: AssemblyAI Streaming v3 (With Edge Token & Resampler) ───────
+
+  const connectAssemblyAI = useCallback(async () => {
     if (!isActiveRef.current) return;
 
-    setConnectionStatus(reconnectAttemptsRef.current > 0 ? "reconnecting" : "connecting");
+    const token = await fetchAssemblyAIToken();
+    if (!token) {
+      setConnectionStatus("no-key");
+      return;
+    }
+    if (!isActiveRef.current) return;
 
-    // 1. Get high quality microphone stream
+    setActiveEngine("assemblyai");
+    setConnectionStatus(
+      reconnectAttemptsRef.current > 0 ? "reconnecting" : "connecting"
+    );
+
+    // 1. Acquire microphone stream
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 48000,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-        }
+        },
       });
     } catch (err) {
-      console.error("[Deepgram STT] Microphone access denied:", err);
+      console.error("[AssemblyAI STT] Microphone access denied:", err);
       setConnectionStatus("error");
       return;
     }
 
     if (!isActiveRef.current) {
-      stream.getTracks().forEach(t => t.stop());
+      stream.getTracks().forEach((t) => t.stop());
       return;
     }
 
     streamRef.current = stream;
 
-    // 2. Open Deepgram WebSocket with custom keywords & endpointing parameters
-    const wsUrl = buildWsUrl(keywordsRef.current);
-    const ws = new WebSocket(wsUrl, ["token", DEEPGRAM_API_KEY]);
+    // 2. Open WebSocket with Token & Keyterms Prompt Bias
+    const wsUrl = buildWsUrl(token, keywordsRef.current);
+    const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
@@ -190,101 +368,142 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
         return;
       }
       connectionOpenedAtRef.current = Date.now();
-      reconnectAttemptsRef.current = 0;
-      setConnectionStatus("connected");
-      sentenceBufferRef.current = "";
-      setInterimTranscript("");
-
-      // 3. Start MediaRecorder with Opus audio stream
-      const mimeType = getSupportedMimeType();
-      const recorderOptions = mimeType ? { mimeType } : undefined;
-      const recorder = new MediaRecorder(stream, recorderOptions);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (
-          e.data.size > 0 &&
-          wsRef.current?.readyState === WebSocket.OPEN
-        ) {
-          wsRef.current.send(e.data);
-        }
-      };
-
-      recorder.onerror = (e) => {
-        console.error("[Deepgram STT] MediaRecorder error:", e);
-      };
-
-      recorder.start(CHUNK_INTERVAL_MS);
+      console.log("[AssemblyAI STT] WebSocket opened with secure token.");
     };
 
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
+      let msg: Record<string, unknown>;
       try {
-        const msg = JSON.parse(event.data);
-        const msgType = msg.type;
-
-        if (msgType === "Results") {
-          const alt = msg.channel?.alternatives?.[0];
-          if (!alt) return;
-          const text: string = alt.transcript?.trim() ?? "";
-          if (!text) return;
-
-          const isFinal = msg.is_final;
-          const speechFinal = msg.speech_final;
-
-          if (isFinal) {
-            let newBuf = text;
-            const prevBuf = sentenceBufferRef.current.trim();
-
-            if (prevBuf) {
-              if (text.toLowerCase().startsWith(prevBuf.toLowerCase())) {
-                newBuf = text;
-              } else if (!prevBuf.toLowerCase().endsWith(text.toLowerCase())) {
-                newBuf = `${prevBuf} ${text}`;
-              } else {
-                newBuf = prevBuf;
-              }
-            }
-
-            const endsWithPunctuation = /[.?!]$/.test(text);
-
-            if (speechFinal || endsWithPunctuation || newBuf.length >= 140) {
-              sentenceBufferRef.current = "";
-              setInterimTranscript("");
-              if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
-              onFinalResultRef.current(newBuf);
-            } else {
-              sentenceBufferRef.current = newBuf;
-              setInterimTranscript(newBuf);
-
-              if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
-              bufferTimerRef.current = setTimeout(() => {
-                flushBuffer();
-              }, 2500);
-            }
-          } else {
-            const prevBuf = sentenceBufferRef.current.trim();
-            const fullDraft = prevBuf ? `${prevBuf} ${text}` : text;
-            setInterimTranscript(fullDraft);
-          }
-        } else if (msgType === "UtteranceEnd") {
-          flushBuffer();
-        } else if (msgType === "SpeechStarted") {
-          // Keep building current sentence buffer
-        }
+        msg = JSON.parse(event.data);
       } catch (e) {
-        console.warn("[Deepgram STT] Failed to parse message:", e);
+        console.warn("[AssemblyAI STT] Failed to parse message:", e);
+        return;
+      }
+
+      const msgType = (msg.type ?? msg.message_type) as string | undefined;
+
+      // ── Session lifecycle ─────────────────────────────────────────────────
+      if (msgType === "Begin" || msgType === "SessionBegins") {
+        sessionReadyRef.current = true;
+        reconnectAttemptsRef.current = 0;
+        sentenceBufferRef.current = "";
+        setInterimTranscript("");
+        setConnectionStatus("connected");
+        const sessionId = (msg.id ?? msg.session_id) as string | undefined;
+        console.log("[AssemblyAI STT] Session started:", sessionId);
+
+        // 3. Start Web Audio PCM processing with RESAMPLER to 16kHz
+        try {
+          const AudioCtx =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext })
+              .webkitAudioContext;
+          const audioCtx = new AudioCtx();
+          audioCtxRef.current = audioCtx;
+
+          const sourceNode = audioCtx.createMediaStreamSource(stream);
+          sourceNodeRef.current = sourceNode;
+
+          const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+          scriptProcessorRef.current = scriptProcessor;
+
+          scriptProcessor.onaudioprocess = (e) => {
+            if (
+              !sessionReadyRef.current ||
+              wsRef.current?.readyState !== WebSocket.OPEN
+            ) {
+              return;
+            }
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmBuffer = resampleAndEncodePCM(
+              inputData,
+              audioCtx.sampleRate,
+              16000
+            );
+            wsRef.current.send(pcmBuffer.buffer as ArrayBuffer);
+          };
+
+          sourceNode.connect(scriptProcessor);
+          scriptProcessor.connect(audioCtx.destination);
+        } catch (e) {
+          console.error("[AssemblyAI STT] AudioContext setup failed:", e);
+          setConnectionStatus("error");
+        }
+        return;
+      }
+
+      if (msgType === "Termination" || msgType === "SessionTerminated") {
+        console.log("[AssemblyAI STT] Session terminated by server.");
+        return;
+      }
+
+      // ── Error from server ─────────────────────────────────────────────────
+      if (msgType === "Error" || msgType === "error" || msg.error) {
+        console.error("[AssemblyAI STT] Server error:", msg.error ?? msg);
+        return;
+      }
+
+      // ── Transcript results ────────────────────────────────────────────────
+      const text = ((msg.text as string) ?? "").trim();
+
+      if (msgType === "PartialTranscript") {
+        if (text) {
+          const prevBuf = sentenceBufferRef.current.trim();
+          setInterimTranscript(prevBuf ? `${prevBuf} ${text}` : text);
+        }
+        return;
+      }
+
+      if (msgType === "FinalTranscript" || msgType === "Turn") {
+        const finalText = (
+          (msgType === "Turn"
+            ? (msg.transcript as string)
+            : text) ?? ""
+        ).trim();
+
+        if (!finalText) return;
+
+        let newBuf = finalText;
+        const prevBuf = sentenceBufferRef.current.trim();
+
+        if (prevBuf) {
+          if (finalText.toLowerCase().startsWith(prevBuf.toLowerCase())) {
+            newBuf = finalText;
+          } else if (!prevBuf.toLowerCase().endsWith(finalText.toLowerCase())) {
+            newBuf = `${prevBuf} ${finalText}`;
+          } else {
+            newBuf = prevBuf;
+          }
+        }
+
+        const endsWithPunctuation = /[.?!]$/.test(finalText);
+
+        if (endsWithPunctuation || newBuf.length >= 140 || msgType === "Turn") {
+          sentenceBufferRef.current = "";
+          setInterimTranscript("");
+          if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+          onFinalResultRef.current(newBuf);
+        } else {
+          sentenceBufferRef.current = newBuf;
+          setInterimTranscript(newBuf);
+          if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+          bufferTimerRef.current = setTimeout(() => {
+            flushBuffer();
+          }, 2500);
+        }
       }
     };
 
     ws.onerror = (e) => {
-      console.error("[Deepgram STT] WebSocket error:", e);
+      console.error("[AssemblyAI STT] WebSocket error:", e);
     };
 
     ws.onclose = (e) => {
       flushBuffer();
-      stopRecorder();
+      stopAudioProcessing();
       wsRef.current = null;
+      sessionReadyRef.current = false;
       setInterimTranscript("");
 
       if (!isActiveRef.current) {
@@ -292,18 +511,15 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
         return;
       }
 
-      // Detect immediate closes: if the connection lived < 2500ms and closed
-      // with code 1000, Deepgram rejected it (bad/missing API key). No point
-      // retrying — it will fail the same way every time.
       const lifetime = connectionOpenedAtRef.current
         ? Date.now() - connectionOpenedAtRef.current
         : 0;
-      const isImmediateClose = e.code === 1000 && lifetime < 2500;
+      const isAuthRejection =
+        e.code === 4001 || e.code === 4000 || (e.code === 1006 && lifetime < 1500);
 
-      if (isImmediateClose) {
+      if (isAuthRejection) {
         console.error(
-          `[Deepgram STT] Connection rejected immediately (code ${e.code}, lived ${lifetime}ms). ` +
-          `Check that VITE_DEEPGRAM_API_KEY is set and valid. Stopping retries.`
+          `[AssemblyAI STT] Auth rejected (code ${e.code}, lived ${lifetime}ms). Check AssemblyAI credentials.`
         );
         setConnectionStatus("no-key");
         isActiveRef.current = false;
@@ -313,56 +529,63 @@ export const useSpeechToText = ({ onFinalResult, keywords = [] }: UseSpeechToTex
       const attempt = reconnectAttemptsRef.current;
       if (attempt < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
-        console.warn(`[Deepgram STT] Connection closed (code ${e.code}). Reconnecting in ${delay}ms (attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        console.warn(
+          `[AssemblyAI STT] Connection closed (code ${e.code}). Reconnecting in ${delay}ms`
+        );
         reconnectAttemptsRef.current += 1;
         setConnectionStatus("reconnecting");
         reconnectTimerRef.current = setTimeout(() => {
-          if (isActiveRef.current) connect();
+          if (isActiveRef.current) connectAssemblyAI();
         }, delay);
       } else {
-        console.error("[Deepgram STT] Max reconnect attempts reached.");
+        console.error("[AssemblyAI STT] Max reconnect attempts reached.");
         setConnectionStatus("error");
         isActiveRef.current = false;
       }
     };
-  }, [closeWs, flushBuffer, stopRecorder]);
+  }, [closeWs, flushBuffer, stopAudioProcessing]);
 
-  // ── Public API ──────────────────────────────────────────────────────────────
+  // ── Start / Stop Router ───────────────────────────────────────────────────
 
   const startListening = useCallback(() => {
-    if (!DEEPGRAM_API_KEY) {
-      console.error("[Deepgram STT] No API key found.");
-      return;
-    }
     if (isActiveRef.current) return;
     isActiveRef.current = true;
     reconnectAttemptsRef.current = 0;
-    connect();
-  }, [connect]);
+
+    if (engine === "web-speech" || engine === "auto") {
+      const success = connectWebSpeech();
+      if (success) return;
+    }
+
+    connectAssemblyAI();
+  }, [connectAssemblyAI, connectWebSpeech, engine]);
 
   const stopListening = useCallback(() => {
     isActiveRef.current = false;
     flushBuffer();
     setInterimTranscript("");
-    stopRecorder();
+    stopWebSpeech();
+    stopAudioProcessing();
     closeWs(true);
     setConnectionStatus("idle");
-  }, [closeWs, flushBuffer, stopRecorder]);
+  }, [closeWs, flushBuffer, stopAudioProcessing, stopWebSpeech]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       isActiveRef.current = false;
       flushBuffer();
-      stopRecorder();
+      stopWebSpeech();
+      stopAudioProcessing();
       closeWs(true);
     };
-  }, [closeWs, flushBuffer, stopRecorder]);
+  }, [closeWs, flushBuffer, stopAudioProcessing, stopWebSpeech]);
 
   return {
     interimTranscript,
     connectionStatus,
-    hasDeepgramKey: !!DEEPGRAM_API_KEY,
+    activeEngine,
+    hasAssemblyAIKey: !!ASSEMBLYAI_API_KEY || hasWebSpeech,
     startListening,
     stopListening,
     isListening: connectionStatus === "connected",

@@ -1,7 +1,17 @@
 import React, { useState } from "react";
 import { useSignBridge, type CustomTerm } from "../context/SignBridgeContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, User, Library, Trash2, Plus, Sparkles, AlertCircle } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faUser,
+  faBookBookmark,
+  faTrashCan,
+  faPlus,
+  faWandMagicSparkles,
+  faCircleExclamation,
+} from "@fortawesome/free-solid-svg-icons";
+import { Navbar } from "./Navbar";
+
 
 export const SettingsPage: React.FC = () => {
   const { profile, updateProfile } = useSignBridge();
@@ -77,20 +87,8 @@ export const SettingsPage: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
 
       {/* Header */}
-      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3 bg-[var(--surface)] sticky top-0 z-30">
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="h-9 w-9 flex items-center justify-center border border-[var(--border)] rounded-lg hover:bg-[var(--background)] transition-colors text-[var(--text-muted)] hover:text-[var(--text)] cursor-pointer shrink-0"
-          aria-label="Back to dashboard"
-        >
-          <ArrowLeft size={14} />
-        </button>
-        <span className="font-bold text-xl sm:text-2xl tracking-tight select-none">
-          sign<span className="text-[var(--primary)]">bridge</span><span className="text-[var(--primary)] font-black text-2xl sm:text-3xl">.</span>
-        </span>
-        <span className="h-4 w-px bg-[var(--border)] hidden sm:block"></span>
-        <span className="text-xs text-[var(--text-muted)] hidden sm:block">Lecturer Settings</span>
-      </header>
+      <Navbar variant="settings" contextLabel="Settings" onBack={() => navigate("/dashboard")} />
+
 
       {/* Main Grid */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 grid grid-cols-1 md:grid-cols-5 gap-6 sm:gap-8 items-start">
@@ -99,7 +97,7 @@ export const SettingsPage: React.FC = () => {
         <div className="md:col-span-2 space-y-6">
           <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
             <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-              <User size={14} /> Profile Settings
+              <FontAwesomeIcon icon={faUser} className="text-xs" /> Profile Settings
             </h2>
 
             <form onSubmit={handleSaveProfile} className="space-y-4 pt-1">
@@ -155,7 +153,7 @@ export const SettingsPage: React.FC = () => {
           {/* Add custom term form */}
           <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
             <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-              <Library size={14} /> Add Custom Classroom Vocabulary
+              <FontAwesomeIcon icon={faBookBookmark} className="text-xs" /> Add Custom Classroom Vocabulary
             </h2>
             <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
               Define specialized technical terms or localized concepts. When spoken, the AI Context Engine will push these definitions immediately to student screens.
@@ -208,7 +206,7 @@ export const SettingsPage: React.FC = () => {
 
               {vocabError && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg text-xs flex gap-2 items-start">
-                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  <FontAwesomeIcon icon={faCircleExclamation} className="mt-0.5 shrink-0 text-xs" />
                   <span>{vocabError}</span>
                 </div>
               )}
@@ -217,7 +215,7 @@ export const SettingsPage: React.FC = () => {
                 type="submit"
                 className="w-full sm:w-auto h-10 px-5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <Plus size={14} /> Add Keyword Trigger
+                <FontAwesomeIcon icon={faPlus} className="text-xs" /> Add Keyword Trigger
               </button>
             </form>
           </div>
@@ -230,7 +228,7 @@ export const SettingsPage: React.FC = () => {
 
             {profile.customVocab.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] py-10">
-                <Sparkles size={24} className="stroke-1 mb-2 text-[var(--text-muted)]" />
+                <FontAwesomeIcon icon={faWandMagicSparkles} className="text-xl mb-2 text-[var(--text-muted)]" />
                 <p className="text-xs font-semibold">No custom vocabulary added yet</p>
                 <p className="text-[10px] mt-0.5 text-center">Add keywords above to populate your classroom dictionary.</p>
               </div>
@@ -263,7 +261,7 @@ export const SettingsPage: React.FC = () => {
                       className="h-9 w-9 flex items-center justify-center text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors cursor-pointer shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                       aria-label="Delete vocabulary term"
                     >
-                      <Trash2 size={14} />
+                      <FontAwesomeIcon icon={faTrashCan} className="text-xs" />
                     </button>
                   </div>
                 ))}

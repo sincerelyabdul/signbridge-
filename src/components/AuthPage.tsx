@@ -1,7 +1,16 @@
 import React, { useState } from "react";
 import { useSignBridge } from "../context/SignBridgeContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Key, Mail, User, ShieldAlert, Loader2 } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faKey,
+  faEnvelope,
+  faUser,
+  faShieldHalved,
+  faSpinner,
+} from "@fortawesome/free-solid-svg-icons";
+import { Navbar } from "./Navbar";
+
 
 export const AuthPage: React.FC = () => {
   const { login, signup } = useSignBridge();
@@ -54,14 +63,8 @@ export const AuthPage: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
 
       {/* Top bar */}
-      <header className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)] bg-[var(--surface)] flex items-center">
-        <button
-          onClick={() => navigate("/")}
-          className="flex items-center gap-1.5 h-10 px-3 border border-[var(--border)] rounded-lg hover:bg-[var(--background)] transition-colors text-xs text-[var(--text-muted)] hover:text-[var(--text)] cursor-pointer"
-        >
-          <ArrowLeft size={14} /> Back
-        </button>
-      </header>
+      <Navbar variant="auth" onBack={() => navigate("/")} />
+
 
       {/* Centered card */}
       <div className="flex-1 flex items-center justify-center px-4 py-8 sm:py-12">
@@ -91,7 +94,7 @@ export const AuthPage: React.FC = () => {
                     onChange={(e) => setName(e.target.value)}
                     className="w-full pl-9 pr-3 py-3 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                   />
-                  <User size={14} className="absolute left-3 top-3.5 text-[var(--text-muted)]" />
+                  <FontAwesomeIcon icon={faUser} className="absolute left-3 top-3.5 text-xs text-[var(--text-muted)]" />
                 </div>
               </div>
             )}
@@ -107,7 +110,7 @@ export const AuthPage: React.FC = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-9 pr-3 py-3 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
-                <Mail size={14} className="absolute left-3 top-3.5 text-[var(--text-muted)]" />
+                <FontAwesomeIcon icon={faEnvelope} className="absolute left-3 top-3.5 text-xs text-[var(--text-muted)]" />
               </div>
             </div>
 
@@ -122,13 +125,13 @@ export const AuthPage: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-9 pr-3 py-3 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
-                <Key size={14} className="absolute left-3 top-3.5 text-[var(--text-muted)]" />
+                <FontAwesomeIcon icon={faKey} className="absolute left-3 top-3.5 text-xs text-[var(--text-muted)]" />
               </div>
             </div>
 
             {error && (
               <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg text-xs leading-relaxed flex gap-2 items-start">
-                <ShieldAlert size={14} className="mt-0.5 shrink-0" />
+                <FontAwesomeIcon icon={faShieldHalved} className="mt-0.5 shrink-0 text-xs" />
                 <span>{error}</span>
               </div>
             )}
@@ -139,7 +142,7 @@ export const AuthPage: React.FC = () => {
               className="w-full h-11 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-semibold rounded-lg text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-60 cursor-pointer"
             >
               {loading ? (
-                <><Loader2 size={15} className="animate-spin" /> Processing...</>
+                <><FontAwesomeIcon icon={faSpinner} spin className="text-xs" /> Processing...</>
               ) : (
                 isSignUp ? "Create Lecturer Account" : "Sign In"
               )}

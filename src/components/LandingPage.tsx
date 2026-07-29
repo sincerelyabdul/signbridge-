@@ -1,16 +1,14 @@
 import React, { useState } from "react";
 import { useSignBridge } from "../context/SignBridgeContext";
 import { useNavigate } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  Mic,
-  ArrowRight,
-  Moon,
-  Sun,
-  BookOpen,
-  Trash2,
-  LogIn,
-  LayoutGrid,
-} from "lucide-react";
+  faMicrophone,
+  faArrowRight,
+  faBookOpen,
+  faTrashCan,
+} from "@fortawesome/free-solid-svg-icons";
+import { Navbar } from "./Navbar";
 
 type ActivePanel = "student" | "lecturer";
 
@@ -21,10 +19,9 @@ export const LandingPage: React.FC = () => {
     sessions,
     selectHistorySession,
     deleteSession,
-    theme,
-    toggleTheme,
     user,
   } = useSignBridge();
+
 
   const navigate = useNavigate();
 
@@ -124,40 +121,8 @@ export const LandingPage: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface)] px-5 sm:px-8 h-12 flex items-center justify-between">
-        <span className="font-bold text-[15px] tracking-tight select-none">
-          sign<span className="text-[var(--primary)]">bridge</span>
-          <span className="text-[var(--primary)] font-black">.</span>
-        </span>
+      <Navbar variant="landing" />
 
-        <div className="flex items-center gap-2">
-          {user ? (
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="h-8 px-3 border border-[var(--border)] rounded-[6px] hover:bg-[var(--background)] text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-            >
-              <LayoutGrid size={13} />
-              <span className="hidden sm:inline">Dashboard</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate("/auth")}
-              className="h-8 px-3 border border-[var(--border)] rounded-[6px] hover:bg-[var(--background)] text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-            >
-              <LogIn size={13} />
-              <span className="hidden sm:inline">I'm a Lecturer</span>
-            </button>
-          )}
-
-          <button
-            onClick={toggleTheme}
-            className="h-8 w-8 flex items-center justify-center border border-[var(--border)] rounded-[6px] hover:bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-          </button>
-        </div>
-      </header>
 
       <main className="flex-1 w-full">
 
@@ -185,13 +150,13 @@ export const LandingPage: React.FC = () => {
               onClick={() => scrollToForms("student")}
               className="h-10 px-5 bg-[var(--text)] text-[var(--background)] text-[13px] font-semibold rounded-[6px] flex items-center justify-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
             >
-              Join a Lecture <ArrowRight size={14} />
+              Join a Lecture <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
             </button>
             <button
               onClick={() => scrollToForms("lecturer")}
               className="h-10 px-5 border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] text-[13px] font-semibold rounded-[6px] flex items-center justify-center gap-2 hover:bg-[var(--background)] transition-colors cursor-pointer"
             >
-              <Mic size={14} />
+              <FontAwesomeIcon icon={faMicrophone} className="text-xs" />
               Start a Lecture
             </button>
           </div>
@@ -302,7 +267,7 @@ export const LandingPage: React.FC = () => {
                     type="submit"
                     className="w-full h-10 bg-[var(--text)] hover:opacity-80 text-[var(--background)] text-[13px] font-semibold rounded-[6px] flex items-center justify-center gap-2 transition-opacity cursor-pointer"
                   >
-                    Join Classroom <ArrowRight size={14} />
+                    Join Classroom <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
                   </button>
                 </form>
               ) : (
@@ -325,7 +290,7 @@ export const LandingPage: React.FC = () => {
                     type="submit"
                     className="w-full h-10 bg-[var(--primary)] hover:opacity-90 text-black text-[13px] font-semibold rounded-[6px] flex items-center justify-center gap-2 transition-opacity cursor-pointer"
                   >
-                    <Mic size={14} />
+                    <FontAwesomeIcon icon={faMicrophone} className="text-xs" />
                     {user ? "Start Session" : "Create Free Account"}
                   </button>
                 </form>
@@ -337,7 +302,7 @@ export const LandingPage: React.FC = () => {
           {sessions.length > 0 && !user && (
             <div className="border-t border-[var(--border)] pt-6 mt-6 space-y-3">
               <p className="text-[11px] font-semibold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-1.5">
-                <BookOpen size={12} />
+                <FontAwesomeIcon icon={faBookOpen} className="text-[12px]" />
                 Saved Lectures ({sessions.length})
               </p>
               <div className="space-y-1 max-h-52 overflow-y-auto">
@@ -362,7 +327,7 @@ export const LandingPage: React.FC = () => {
                       className="p-1.5 text-[var(--text-muted)] hover:text-red-500 rounded-[4px] transition-colors cursor-pointer shrink-0 ml-2"
                       aria-label="Delete lecture"
                     >
-                      <Trash2 size={13} />
+                      <FontAwesomeIcon icon={faTrashCan} className="text-[13px]" />
                     </button>
                   </div>
                 ))}
