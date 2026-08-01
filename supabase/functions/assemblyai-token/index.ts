@@ -1,21 +1,24 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// Deno global type declaration for IDE type checking in non-Deno TypeScript workspace
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined;
+  };
+  serve(handler: (req: Request) => Promise<Response> | Response): void;
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const ASSEMBLYAI_API_KEY =
-      Deno.env.get("ASSEMBLYAI_API_KEY") ||
-      Deno.env.get("VITE_ASSEMBLYAI_API_KEY") ||
-      "4855b8d0e4e54751a8462938c0b445e5";
+    const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 
     if (!ASSEMBLYAI_API_KEY) {
       return new Response(
@@ -67,3 +70,4 @@ serve(async (req) => {
     );
   }
 });
+

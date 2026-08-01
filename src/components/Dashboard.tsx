@@ -17,6 +17,7 @@ import {
   faFileLines,
   faWandMagicSparkles,
   faSpinner,
+  faMagnifyingGlass,
 } from "@fortawesome/free-solid-svg-icons";
 import { Navbar } from "./Navbar";
 import type { CustomTerm } from "../context/SignBridgeContext";
@@ -34,6 +35,9 @@ export const Dashboard: React.FC = () => {
 
   const navigate = useNavigate();
 
+  // Navigation View State: "setup" | "history"
+  const [activeTab, setActiveTab] = useState<"setup" | "history">("setup");
+
   // Setup Wizard State: 1 | 2 | 3
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [lectureTitle, setLectureTitle] = useState("");
@@ -42,6 +46,9 @@ export const Dashboard: React.FC = () => {
   const [newKeyword, setNewKeyword] = useState("");
   const [newDefinition, setNewDefinition] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
+
+  // History Search Query
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Preset topic pills
   const presets = [
@@ -128,13 +135,106 @@ export const Dashboard: React.FC = () => {
 
   const isDemoUser = user?.id === "mock_user_id";
 
+  const filteredSessions = sessions.filter((s) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      s.title.toLowerCase().includes(q) ||
+      s.code.toLowerCase().includes(q) ||
+      (s.summary && s.summary.toLowerCase().includes(q))
+    );
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
-      {/* Header */}
+      {/* Main App Navbar */}
       <Navbar variant="dashboard" contextLabel="Lecturer Hub" />
 
-      {/* Main Workspace Layout (2-Column Grid) */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
+      {/* Sub-Header Navigation Tabs */}
+      <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto flex items-center justify-between h-14">
+          {/* View Switcher Tabs */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab("setup")}
+              className={`h-9 px-4 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                activeTab === "setup"
+                  ? "bg-[var(--primary)] text-black shadow-sm"
+                  : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--background)]"
+              }`}
+            >
+              <FontAwesomeIcon icon={faRadio} className={`text-xs ${activeTab === "setup" ? "animate-pulse" : ""}`} />
+              Live Class Setup
+            </button>
+
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`h-9 px-4 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                activeTab === "history"
+                  ? "bg-[var(--primary)] text-black shadow-sm"
+                  : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--background)]"
+              }`}
+            >
+              <FontAwesomeIcon icon={faBookOpen} className="text-xs" />
+              Lecture History
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono ${
+                activeTab === "history" ? "bg-black/20 text-black" : "bg-[var(--border)] text-[var(--text-muted)]"
+              }`}>
+                {sessions.length}
+              </span>
+            </button>
+          </div>
+
+          {/* New Session CTA button when in History view */}
+          {activeTab === "history" && (
+            <button
+              onClick={() => setActiveTab("setup")}
+              className="h-8 px-3 rounded-lg bg-[var(--background)] border border-[var(--border)] hover:border-[var(--primary)] text-[var(--primary)] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <FontAwesomeIcon icon={faPlus} className="text-[11px]" />
+              New Lecture
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main Workspace Layout */}
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
+        {/* Active Live Broadcast Banner */}
+        {sessions.some((s) => s.isActive) && (
+          <div className="mb-6 border border-[var(--primary)]/30 bg-[var(--primary)]/10 rounded-2xl p-5 text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-fade-in">
+            <div className="flex items-center gap-3">
+              <span className="flex h-3 w-3 relative shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--primary)] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--primary)]"></span>
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--primary)]">
+                    Live Broadcast Active
+                  </span>
+                  <span className="text-[10px] font-mono border border-[var(--primary)]/30 rounded px-1.5 py-0.2 text-[var(--text-muted)] bg-[var(--surface)]">
+                    Room Code: {sessions.find((s) => s.isActive)?.code}
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-[var(--text)] mt-0.5">
+                  {sessions.find((s) => s.isActive)?.title}
+                </h3>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                const live = sessions.find((s) => s.isActive);
+                if (live) handleSelectSession(live);
+              }}
+              className="h-10 px-5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm shrink-0"
+            >
+              <FontAwesomeIcon icon={faRadio} className="text-xs animate-pulse" /> Re-enter Live Classroom
+            </button>
+          </div>
+        )}
+
         {/* Demo Mode Alert Banner */}
         {isDemoUser && (
           <div className="mb-6 border border-yellow-500/20 bg-yellow-500/10 text-yellow-500 rounded-xl p-4 text-xs leading-relaxed flex gap-2.5 items-start text-left">
@@ -146,18 +246,19 @@ export const Dashboard: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-          {/* ── LEFT COLUMN (6/12): Live Classroom Setup Wizard ── */}
-          <div className="lg:col-span-6 space-y-6">
-            <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] p-6 sm:p-8 space-y-6 text-left shadow-sm">
+        {/* ───────────────────────────────────────────────────────────────── */}
+        {/* VIEW 1: FULL PAGE LIVE CLASSROOM SETUP WIZARD                     */}
+        {/* ───────────────────────────────────────────────────────────────── */}
+        {activeTab === "setup" && (
+          <div className="max-w-3xl mx-auto space-y-6">
+            <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] p-6 sm:p-10 space-y-8 text-left shadow-sm">
               
               {/* Progress Header */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-[var(--primary)] font-bold flex items-center gap-1.5 uppercase tracking-wider">
-                    <FontAwesomeIcon icon={faRadio} className="animate-pulse text-[11px]" />
-                    Live Classroom Setup
+              <div className="space-y-3 border-b border-[var(--border)] pb-6">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[var(--primary)] font-bold flex items-center gap-2 uppercase tracking-wider">
+                    <FontAwesomeIcon icon={faRadio} className="animate-pulse text-xs" />
+                    Live Classroom Setup Wizard
                   </span>
                   <span className="text-[var(--text-muted)] font-semibold">
                     Step {currentStep} of 3
@@ -165,11 +266,11 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* 3-Segment Progress Bar */}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-3">
                   {[1, 2, 3].map((step) => (
                     <div
                       key={step}
-                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                      className={`h-2 rounded-full transition-all duration-300 ${
                         currentStep >= step ? "bg-[var(--primary)]" : "bg-[var(--border)]"
                       }`}
                     />
@@ -180,34 +281,34 @@ export const Dashboard: React.FC = () => {
               {/* ── STEP 1: Lecture Topic ── */}
               {currentStep === 1 && (
                 <form onSubmit={handleStep1Next} className="space-y-6">
-                  <div className="space-y-1.5">
-                    <h2 className="text-xl font-bold text-[var(--text)] flex items-center gap-2">
-                      <FontAwesomeIcon icon={faBookOpen} className="text-sm text-[var(--primary)]" />
-                      Step 1: Lecture Topic
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold text-[var(--text)] flex items-center gap-2.5">
+                      <FontAwesomeIcon icon={faBookOpen} className="text-lg text-[var(--primary)]" />
+                      Step 1: What are you teaching today?
                     </h2>
                     <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      What topic are you teaching today? Students will see this on their caption screen.
+                      Enter your lecture title or select a quick topic preset. Connected students will see this header on their real-time caption display.
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
+                  <div className="space-y-2.5 pt-2">
+                    <label className="text-xs uppercase font-bold tracking-wider text-[var(--text-muted)]">
                       Lecture Title / Subject
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder={profile.defaultTitle || "e.g. Computer Science Lecture"}
+                      placeholder={profile.defaultTitle || "e.g. Computer Architecture & Systems"}
                       value={lectureTitle}
                       onChange={(e) => setLectureTitle(e.target.value)}
-                      className="w-full px-4 py-3 border border-[var(--border)] rounded-xl bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
+                      className="w-full px-4 py-3.5 border border-[var(--border)] rounded-xl bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                       autoFocus
                     />
                   </div>
 
                   {/* Quick Presets */}
-                  <div className="space-y-2">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)] block">
+                  <div className="space-y-2.5 pt-1">
+                    <span className="text-xs uppercase font-bold tracking-wider text-[var(--text-muted)] block">
                       Quick Presets
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -216,9 +317,9 @@ export const Dashboard: React.FC = () => {
                           key={preset}
                           type="button"
                           onClick={() => setLectureTitle(preset)}
-                          className={`text-xs px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                          className={`text-xs px-3.5 py-2 rounded-xl border transition-all cursor-pointer ${
                             lectureTitle === preset
-                              ? "bg-[var(--primary)]/15 border-[var(--primary)] text-[var(--primary)] font-bold"
+                              ? "bg-[var(--primary)]/15 border-[var(--primary)] text-[var(--primary)] font-bold shadow-xs"
                               : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--text-muted)]"
                           }`}
                         >
@@ -228,78 +329,87 @@ export const Dashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    className="w-full h-11 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                  >
-                    Next: Add Notes & Slides Context <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
-                  </button>
+                  <div className="pt-4">
+                    <button
+                      type="submit"
+                      className="w-full h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm shadow-[var(--primary)]/20"
+                    >
+                      Next: Add Notes & Slides Context <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
+                    </button>
+                  </div>
                 </form>
               )}
 
               {/* ── STEP 2: Notes & Slides Context / Vocabulary ── */}
               {currentStep === 2 && (
-                <div className="space-y-5">
-                  <div className="space-y-1.5">
-                    <h2 className="text-xl font-bold text-[var(--text)] flex items-center gap-2">
-                      <FontAwesomeIcon icon={faFileLines} className="text-sm text-violet-400" />
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold text-[var(--text)] flex items-center gap-2.5">
+                      <FontAwesomeIcon icon={faFileLines} className="text-lg text-violet-400" />
                       Step 2: Notes & Slides Context
                     </h2>
                     <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Paste lecture notes or slides outline. Key terms will be highlighted for students in real-time.
+                      Paste your lecture outline or notes. Google Gemini AI will automatically extract key concepts and populate your speech recognition bias model.
                     </p>
                   </div>
 
                   {/* Primer Textarea */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
-                        Paste Lecture Notes or Terms (Optional)
+                      <label className="text-xs uppercase font-bold tracking-wider text-[var(--text-muted)]">
+                        Paste Lecture Notes or Syllabus (Optional)
                       </label>
                       {lecturePrimerText.trim() && (
                         <button
                           type="button"
                           disabled={isExtracting}
                           onClick={handleExtractFromPrimer}
-                          className="text-[10px] text-[var(--primary)] hover:underline flex items-center gap-1 font-semibold cursor-pointer disabled:opacity-60"
+                          className="text-xs text-[var(--primary)] hover:underline flex items-center gap-1 font-semibold cursor-pointer disabled:opacity-60"
                         >
                           {isExtracting ? (
                             <>
-                              <FontAwesomeIcon icon={faSpinner} spin className="text-[10px]" /> Extracting with Gemini AI...
+                              <FontAwesomeIcon icon={faSpinner} spin className="text-xs" /> Extracting with Gemini AI...
                             </>
                           ) : (
                             <>
-                              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-[10px]" /> Extract Terms
+                              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-xs" /> AI Extract Terms
                             </>
                           )}
                         </button>
                       )}
                     </div>
                     <textarea
-                      rows={3}
-                      placeholder="e.g. Photosynthesis: Process by which green plants convert light energy into chemical energy..."
+                      rows={5}
+                      placeholder="Paste your lecture notes, slides text, or concept outline here..."
                       value={lecturePrimerText}
                       onChange={(e) => setLecturePrimerText(e.target.value)}
-                      className="w-full p-3 border border-[var(--border)] rounded-xl bg-[var(--background)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--primary)] resize-none"
+                      className="w-full p-4 border border-[var(--border)] rounded-xl bg-[var(--background)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--primary)] resize-none leading-relaxed font-sans"
                     />
                   </div>
 
                   {/* Keyterms Section */}
-                  <div className="space-y-3 pt-1">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)] block">
-                      Course Keyterms ({keytermsList.length})
-                    </span>
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase font-bold tracking-wider text-[var(--text-muted)] block">
+                        Course Keyterms ({keytermsList.length})
+                      </span>
+                      {keytermsList.length > 0 && (
+                        <span className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary)]/10 px-2 py-0.5 rounded border border-[var(--primary)]/20 font-bold">
+                          Speech Recognition Biased
+                        </span>
+                      )}
+                    </div>
 
-                    <div className="flex flex-wrap gap-2 min-h-[36px] max-h-28 overflow-y-auto pr-1">
+                    <div className="flex flex-wrap gap-2 min-h-[44px] max-h-36 overflow-y-auto p-2.5 border border-[var(--border)] rounded-xl bg-[var(--background)]">
                       {keytermsList.length === 0 ? (
-                        <span className="text-xs text-[var(--text-muted)] italic self-center">
-                          No custom keyterms added yet. Add terms below to assist student comprehension.
+                        <span className="text-xs text-[var(--text-muted)] italic self-center px-2">
+                          No custom keyterms added yet. Add terms below or paste lecture notes above to extract automatically.
                         </span>
                       ) : (
                         keytermsList.map((k) => (
                           <span
                             key={k.keyword}
-                            className="text-xs font-mono bg-[var(--primary)]/10 border border-[var(--primary)]/20 text-[var(--primary)] px-2.5 py-1 rounded-lg flex items-center gap-1.5"
+                            className="text-xs font-mono bg-[var(--primary)]/10 border border-[var(--primary)]/20 text-[var(--primary)] px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-xs"
                           >
                             {k.keyword}
                             <button
@@ -315,35 +425,40 @@ export const Dashboard: React.FC = () => {
                     </div>
 
                     {/* Quick Add Form */}
-                    <form onSubmit={handleAddKeyterm} className="flex gap-2">
+                    <form onSubmit={handleAddKeyterm} className="flex gap-2 pt-1">
                       <input
                         type="text"
                         placeholder="Keyword (e.g. Mitochondria)"
                         value={newKeyword}
                         onChange={(e) => setNewKeyword(e.target.value)}
-                        className="flex-1 px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--primary)]"
+                        className="flex-1 px-3.5 py-2.5 border border-[var(--border)] rounded-xl bg-[var(--background)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--primary)]"
                       />
                       <button
                         type="submit"
-                        className="px-3.5 h-9 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--primary)] text-[var(--text)] rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                        className="px-4 h-10 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--primary)] text-[var(--text)] rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
                       >
-                        <FontAwesomeIcon icon={faPlus} className="text-[12px]" /> Add
+                        <FontAwesomeIcon icon={faPlus} className="text-xs" /> Add Term
                       </button>
                     </form>
                   </div>
 
-                  <div className="flex gap-3 pt-2">
+                  <div className="flex gap-4 pt-4">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(1)}
-                      className="h-11 px-4 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                      className="h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-2 shrink-0"
                     >
                       <FontAwesomeIcon icon={faArrowLeft} className="text-xs" /> Back
                     </button>
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(3)}
-                      className="flex-1 h-11 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                      onClick={async () => {
+                        if (lecturePrimerText.trim() && keytermsList.length === 0) {
+                          await handleExtractFromPrimer();
+                        }
+                        setCurrentStep(3);
+                      }}
+                      className="flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm shadow-[var(--primary)]/20"
                     >
                       Next: Review & Launch <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
                     </button>
@@ -353,37 +468,45 @@ export const Dashboard: React.FC = () => {
 
               {/* ── STEP 3: Review & Launch ── */}
               {currentStep === 3 && (
-                <div className="space-y-5">
-                  <div className="space-y-1.5">
-                    <h2 className="text-xl font-bold text-[var(--text)] flex items-center gap-2">
-                      <FontAwesomeIcon icon={faMicrophone} className="text-sm text-[var(--primary)]" />
-                      Step 3: Ready to Broadcast
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold text-[var(--text)] flex items-center gap-2.5">
+                      <FontAwesomeIcon icon={faMicrophone} className="text-lg text-[var(--primary)]" />
+                      Step 3: Ready to Broadcast Live
                     </h2>
                     <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Review your lecture setup and launch your live classroom session.
+                      Review your lecture parameters and launch your live classroom session for connected students.
                     </p>
                   </div>
 
                   {/* Summary Card */}
-                  <div className="p-4 border border-[var(--border)] rounded-xl bg-[var(--background)] space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono uppercase text-[var(--text-muted)]">Topic</span>
-                      <span className="text-[10px] font-mono text-[var(--primary)] bg-[var(--primary)]/10 px-2 py-0.5 rounded border border-[var(--primary)]/20">
-                        Ready
+                  <div className="p-5 border border-[var(--border)] rounded-2xl bg-[var(--background)] space-y-4">
+                    <div className="flex justify-between items-center border-b border-[var(--border)] pb-3">
+                      <span className="text-xs font-mono uppercase text-[var(--text-muted)]">Subject / Topic</span>
+                      <span className="text-xs font-mono text-[var(--primary)] bg-[var(--primary)]/10 px-2.5 py-1 rounded-lg border border-[var(--primary)]/20 font-bold">
+                        Ready to Stream
                       </span>
                     </div>
-                    <p className="font-bold text-sm text-[var(--text)]">{lectureTitle}</p>
-                    <div className="text-[11px] text-[var(--text-muted)] font-mono flex items-center gap-4">
-                      <span>Keyterms: {keytermsList.length}</span>
-                      <span>Notes Primer: {lecturePrimerText.trim() ? "Attached" : "None"}</span>
+                    <h3 className="font-bold text-lg text-[var(--text)]">{lectureTitle}</h3>
+                    <div className="grid grid-cols-2 gap-4 pt-1 text-xs text-[var(--text-muted)] font-mono">
+                      <div className="p-3 border border-[var(--border)] rounded-xl bg-[var(--surface)]">
+                        <span className="block text-[10px] uppercase text-[var(--text-muted)] mb-1">Keyterms Biased</span>
+                        <strong className="text-sm text-[var(--text)] font-bold">{keytermsList.length} terms</strong>
+                      </div>
+                      <div className="p-3 border border-[var(--border)] rounded-xl bg-[var(--surface)]">
+                        <span className="block text-[10px] uppercase text-[var(--text-muted)] mb-1">Notes Primer</span>
+                        <strong className="text-sm text-[var(--text)] font-bold">
+                          {lecturePrimerText.trim() ? "Attached" : "None"}
+                        </strong>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex gap-3 pt-2">
+                  <div className="flex gap-4 pt-4">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(2)}
-                      className="h-11 px-4 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                      className="h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-2 shrink-0"
                     >
                       <FontAwesomeIcon icon={faArrowLeft} className="text-xs" /> Back
                     </button>
@@ -391,91 +514,138 @@ export const Dashboard: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleFinalLaunch}
-                      className="flex-1 h-11 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-md shadow-[var(--primary)]/20"
+                      className="flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-[var(--primary)]/20"
                     >
-                      <FontAwesomeIcon icon={faMicrophone} className="text-sm" /> Launch Live Classroom
+                      <FontAwesomeIcon icon={faMicrophone} className="text-base" /> Launch Live Classroom
                     </button>
                   </div>
                 </div>
               )}
             </div>
           </div>
+        )}
 
-          {/* ── RIGHT COLUMN (6/12): Lecture History ── */}
-          <div className="lg:col-span-6 space-y-6">
-            <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] p-6 sm:p-8 text-left shadow-sm space-y-5 flex flex-col min-h-[450px]">
-              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-                <h3 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
-                  <FontAwesomeIcon icon={faBookOpen} className="text-xs text-[var(--primary)]" />
-                  Lecture History ({sessions.length})
-                </h3>
+        {/* ───────────────────────────────────────────────────────────────── */}
+        {/* VIEW 2: FULL PAGE LECTURE HISTORY                                 */}
+        {/* ───────────────────────────────────────────────────────────────── */}
+        {activeTab === "history" && (
+          <div className="space-y-6">
+            {/* Header & Search Controls */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--border)] pb-6">
+              <div>
+                <h1 className="text-2xl font-bold text-[var(--text)] flex items-center gap-2.5">
+                  <FontAwesomeIcon icon={faBookOpen} className="text-lg text-[var(--primary)]" />
+                  Lecture History Archive
+                </h1>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Access past lecture transcripts, concept card decks, and automated smart summaries.
+                </p>
               </div>
 
-              {sessions.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-16 px-6 text-[var(--text-muted)] space-y-3">
-                  <FontAwesomeIcon icon={faClock} className="text-3xl text-[var(--border)]" />
-                  <p className="font-bold text-xs text-[var(--text)]">No lectures recorded yet</p>
-                  <p className="text-[11px] max-w-xs leading-relaxed">
-                    Complete the setup wizard on the left to launch your first live lecture session.
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-72">
+                <FontAwesomeIcon
+                  icon={faMagnifyingGlass}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]"
+                />
+                <input
+                  type="text"
+                  placeholder="Search by topic or room code..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 border border-[var(--border)] rounded-xl bg-[var(--surface)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--primary)] transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Session Cards Grid */}
+            {filteredSessions.length === 0 ? (
+              <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] py-20 px-6 text-center text-[var(--text-muted)] space-y-4">
+                <FontAwesomeIcon icon={faClock} className="text-4xl text-[var(--border)]" />
+                <div className="space-y-1">
+                  <p className="font-bold text-sm text-[var(--text)]">
+                    {searchQuery ? "No matching lectures found" : "No lectures recorded yet"}
+                  </p>
+                  <p className="text-xs max-w-sm mx-auto leading-relaxed">
+                    {searchQuery
+                      ? "Try searching for a different keyword or room code."
+                      : "Click 'Live Class Setup' above to broadcast your first live lecture."}
                   </p>
                 </div>
-              ) : (
-                <div className="space-y-3 flex-1 overflow-y-auto max-h-[60vh] pr-1">
-                  {sessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className={`group flex items-center gap-3.5 p-4 border rounded-xl transition-all ${
-                        session.isActive
-                          ? "border-[var(--primary)] bg-[var(--primary)]/5"
-                          : "border-[var(--border)] bg-[var(--background)] hover:bg-[var(--surface)]"
-                      }`}
-                    >
+                {!searchQuery && (
+                  <button
+                    onClick={() => setActiveTab("setup")}
+                    className="h-10 px-5 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-xs inline-flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <FontAwesomeIcon icon={faPlus} className="text-xs" /> Launch New Lecture
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={`p-5 border rounded-2xl transition-all text-left flex flex-col justify-between space-y-4 ${
+                      session.isActive
+                        ? "border-[var(--primary)] bg-[var(--primary)]/5 shadow-sm"
+                        : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--text-muted)]"
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-mono border border-[var(--border)] rounded-md px-2 py-0.5 text-[var(--text-muted)] bg-[var(--background)]">
+                          Code: {session.code}
+                        </span>
+                        {session.isActive ? (
+                          <span className="text-[10px] font-mono font-bold bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-[var(--primary)] animate-ping" />
+                            LIVE • RESUME CLASS
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                            {session.date}
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-bold text-base text-[var(--text)] group-hover:text-[var(--primary)] transition-colors line-clamp-1">
+                        {session.title}
+                      </h3>
+
+                      <p className="text-xs text-[var(--text-muted)] font-mono">
+                        {session.conceptCards?.length || 0} Concept Cards · {session.transcript?.length || 0} Captions
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
                       <button
                         onClick={() => handleSelectSession(session)}
-                        className="flex-1 text-left cursor-pointer min-w-0 space-y-1.5"
+                        className={`h-9 px-4 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                          session.isActive
+                            ? "bg-[var(--primary)] text-black hover:bg-[var(--primary-hover)] shadow-xs"
+                            : "border border-[var(--border)] hover:border-[var(--primary)] text-[var(--text)] bg-[var(--background)]"
+                        }`}
                       >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-bold text-sm text-[var(--text)] group-hover:text-[var(--primary)] transition-colors truncate">
-                            {session.title}
-                          </h4>
-                          <span className="text-[9px] font-mono border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--text-muted)] shrink-0">
-                            {session.code}
-                          </span>
-                          {session.isActive && (
-                            <span className="text-[9px] font-mono font-bold bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] animate-ping" />
-                              LIVE • RESUME CLASS
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-[var(--text-muted)] font-mono">
-                          {session.date} · {session.conceptCards?.length || 0} concept cards generated
-                        </p>
+                        {session.isActive ? "Resume Broadcast" : "View Review Deck"}{" "}
+                        <FontAwesomeIcon icon={faChevronRight} className="text-[10px]" />
                       </button>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleSelectSession(session)}
-                          className="h-8 px-2.5 text-[10px] font-semibold border border-[var(--border)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--text-muted)] transition-colors cursor-pointer flex items-center gap-1"
-                        >
-                          View <FontAwesomeIcon icon={faChevronRight} className="text-[10px]" />
-                        </button>
-                        <button
-                          onClick={() => deleteSession(session.id)}
-                          className="p-1.5 h-8 w-8 flex items-center justify-center text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors cursor-pointer"
-                          aria-label="Delete session"
-                        >
-                          <FontAwesomeIcon icon={faTrashCan} className="text-[12px]" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => deleteSession(session.id)}
+                        className="p-2 h-9 w-9 flex items-center justify-center text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors cursor-pointer"
+                        aria-label="Delete lecture session"
+                        title="Delete session"
+                      >
+                        <FontAwesomeIcon icon={faTrashCan} className="text-xs" />
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-
-        </div>
+        )}
       </main>
     </div>
   );

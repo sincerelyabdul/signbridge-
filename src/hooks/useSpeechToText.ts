@@ -64,11 +64,7 @@ function resampleAndEncodePCM(
 
 // ─── AssemblyAI Streaming v3 WebSocket STT ────────────────────────────────────
 
-const ASSEMBLYAI_API_KEY = import.meta.env.VITE_ASSEMBLYAI_API_KEY as
-  | string
-  | undefined;
-
-/** Fetch temporary streaming token securely from Supabase Edge Function or fallback to local key */
+/** Fetch temporary streaming token securely from Supabase Edge Function */
 async function fetchAssemblyAIToken(): Promise<string | null> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -85,12 +81,15 @@ async function fetchAssemblyAIToken(): Promise<string | null> {
       if (res.ok) {
         const data = await res.json();
         if (data.token) return data.token;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error("[AssemblyAI STT] Edge token endpoint returned error:", res.status, errData);
       }
     } catch (e) {
-      console.warn("[AssemblyAI STT] Edge token fetch fallback to local key:", e);
+      console.error("[AssemblyAI STT] Failed to fetch secure token from Edge Function:", e);
     }
   }
-  return ASSEMBLYAI_API_KEY || null;
+  return null;
 }
 
 /** Build the fully-authenticated, configured WebSocket URL with keyterms_prompt */
@@ -130,8 +129,10 @@ export const useSpeechToText = ({
     typeof window !== "undefined" &&
     !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
+  const hasEdgeFunction = !!(import.meta.env.VITE_SUPABASE_URL);
+
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
-    hasWebSpeech || ASSEMBLYAI_API_KEY ? "idle" : "no-key"
+    hasWebSpeech || hasEdgeFunction ? "idle" : "no-key"
   );
 
   // 2. Stable Ref Hooks
@@ -479,7 +480,7 @@ export const useSpeechToText = ({
 
         const endsWithPunctuation = /[.?!]$/.test(finalText);
 
-        if (endsWithPunctuation || newBuf.length >= 140 || msgType === "Turn") {
+        if (endsWithPunctuation || newBuf.length >= 240 || msgType === "Turn") {
           sentenceBufferRef.current = "";
           setInterimTranscript("");
           if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
@@ -490,7 +491,7 @@ export const useSpeechToText = ({
           if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
           bufferTimerRef.current = setTimeout(() => {
             flushBuffer();
-          }, 2500);
+          }, 3500);
         }
       }
     };
@@ -585,7 +586,7 @@ export const useSpeechToText = ({
     interimTranscript,
     connectionStatus,
     activeEngine,
-    hasAssemblyAIKey: !!ASSEMBLYAI_API_KEY || hasWebSpeech,
+    hasAssemblyAIKey: hasEdgeFunction || hasWebSpeech,
     startListening,
     stopListening,
     isListening: connectionStatus === "connected",

@@ -8,6 +8,7 @@ import { LecturerWorkspace } from "./components/LecturerWorkspace";
 import { StudentWorkspace } from "./components/StudentWorkspace";
 import { SavedLessons } from "./components/SavedLessons";
 import { SettingsPage } from "./components/SettingsPage";
+import { Loader } from "./components/Loader";
 import "./App.css";
 
 const DocumentTitleHandler: React.FC = () => {
@@ -46,10 +47,7 @@ const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--text)]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs text-[var(--text-muted)] font-mono">Verifying session...</span>
-        </div>
+        <Loader label="Initializing SignBridge..." />
       </div>
     );
   }

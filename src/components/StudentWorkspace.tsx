@@ -8,8 +8,14 @@ import {
   faWifi,
   faRadio,
   faFileLines,
+  faCopy,
+  faCheck,
+  faShareNodes,
+  faBookmark,
+  faThumbsUp,
 } from "@fortawesome/free-solid-svg-icons";
 import { Navbar } from "./Navbar";
+import { Loader } from "./Loader";
 
 export const StudentWorkspace: React.FC = () => {
   const { code } = useParams();
@@ -27,6 +33,8 @@ export const StudentWorkspace: React.FC = () => {
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [loading, setLoading] = useState(true);
   const [mobileTab, setMobileTab] = useState<"live" | "vocab">("live");
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [bookmarkedLines, setBookmarkedLines] = useState<Set<string>>(new Set());
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollEndRef = useRef<HTMLDivElement>(null);
@@ -79,15 +87,59 @@ export const StudentWorkspace: React.FC = () => {
     navigate("/student-entry");
   };
 
+  const handleCopyInviteLink = () => {
+    const inviteUrl = window.location.href;
+    navigator.clipboard.writeText(inviteUrl);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const toggleBookmarkLine = (lineId: string) => {
+    setBookmarkedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  };
+
+  /** Highlight course keyterms inside transcript text */
+  const renderHighlightedTranscript = (text: string) => {
+    if (!activeSession?.customVocab || activeSession.customVocab.length === 0) {
+      return text;
+    }
+
+    const keywords = activeSession.customVocab
+      .map((v) => v.keyword)
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+
+    if (keywords.length === 0) return text;
+
+    const pattern = new RegExp(`\\b(${keywords.map((k) => k.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")).join("|")})\\b`, "gi");
+    const parts = text.split(pattern);
+
+    return parts.map((part, i) => {
+      const matched = keywords.find((k) => k.toLowerCase() === part.toLowerCase());
+      if (matched) {
+        return (
+          <mark
+            key={i}
+            className="bg-[var(--primary)]/15 border-b-2 border-[var(--primary)] text-[var(--text)] font-semibold px-1 rounded-sm cursor-help"
+            title={`Course Keyterm: ${matched}`}
+          >
+            {part}
+          </mark>
+        );
+      }
+      return part;
+    });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--text)]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs text-[var(--text-muted)] font-mono">
-            Connecting to live classroom feed...
-          </span>
-        </div>
+        <Loader label="Connecting to live classroom feed..." />
       </div>
     );
   }
@@ -116,7 +168,7 @@ export const StudentWorkspace: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
-      {/* Header */}
+      {/* Navbar Header */}
       <Navbar
         variant="workspace"
         contextLabel={activeSession.title}
@@ -131,16 +183,30 @@ export const StudentWorkspace: React.FC = () => {
       )}
 
       {/* Top Controls Toolbar */}
-      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-2.5 w-2.5 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--primary)] opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[var(--primary)]"></span>
-          </span>
-          <span className="text-xs font-bold text-[var(--text)] uppercase tracking-wider flex items-center gap-1.5">
-            <FontAwesomeIcon icon={faRadio} className="text-[13px] text-[var(--primary)]" />
-            Live Classroom Feed
-          </span>
+      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 flex-wrap">
+        {/* Live Broadcast Badge & Room Code */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--primary)] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[var(--primary)]"></span>
+            </span>
+            <span className="text-xs font-bold text-[var(--text)] uppercase tracking-wider flex items-center gap-1.5">
+              <FontAwesomeIcon icon={faRadio} className="text-[13px] text-[var(--primary)]" />
+              Live Classroom Feed
+            </span>
+          </div>
+
+          {/* Room Code Badge with Copy Link */}
+          <button
+            onClick={handleCopyInviteLink}
+            className="text-[10px] font-mono border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Click to copy invite link"
+          >
+            <FontAwesomeIcon icon={faShareNodes} className="text-[10px] text-[var(--primary)]" />
+            <span>Room Code: <strong className="text-[var(--text)]">{activeSession.code}</strong></span>
+            <FontAwesomeIcon icon={copiedCode ? faCheck : faCopy} className="text-[10px]" />
+          </button>
         </div>
 
         {/* Mobile View Toggle */}
@@ -230,11 +296,11 @@ export const StudentWorkspace: React.FC = () => {
             <div className="flex items-center gap-2">
               <FontAwesomeIcon icon={faBookOpen} className="text-sm text-[var(--primary)]" />
               <span className="text-xs font-bold text-[var(--text)]">
-                Live Speech Transcript
+                Live Speech Transcript Stream
               </span>
             </div>
             <span className="text-[10px] font-mono text-[var(--text-muted)]">
-              {activeSession.transcript?.length || 0} Spoken Lines
+              {activeSession.transcript?.length || 0} Paragraphs
             </span>
           </div>
 
@@ -242,40 +308,67 @@ export const StudentWorkspace: React.FC = () => {
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 p-6 sm:p-8 overflow-y-auto space-y-4 max-h-[65vh]"
+            className="flex-1 p-6 sm:p-8 overflow-y-auto space-y-5 max-h-[65vh]"
           >
             {activeSession.transcript?.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-[var(--text-muted)] py-20 space-y-3">
                 <FontAwesomeIcon icon={faWifi} className="text-3xl animate-pulse text-[var(--primary)]" />
-                <p className="font-bold text-sm text-[var(--text)]">Listening for Lecturer...</p>
+                <p className="font-bold text-sm text-[var(--text)]">Listening for Live Speech Stream...</p>
                 <p className="text-xs max-w-xs leading-relaxed">
-                  As your lecturer speaks, live captions will appear on your screen in real time.
+                  As your lecturer speaks, intelligent continuous captions will stream on your screen in real time.
                 </p>
               </div>
             ) : (
-              activeSession.transcript.map((line) => (
-                <div
-                  key={line.id}
-                  className="p-4 rounded-xl border border-[var(--border)] bg-[var(--background)] space-y-1 transition-all animate-fade-in"
-                >
-                  <span className="text-[9px] font-mono text-[var(--text-muted)] block">
-                    {new Date(line.timestamp).toLocaleTimeString()}
-                  </span>
-                  <p
-                    className={`leading-relaxed text-[var(--text)] font-sans ${
-                      fontSize === "sm"
-                        ? "text-sm"
-                        : fontSize === "md"
-                        ? "text-base"
-                        : fontSize === "lg"
-                        ? "text-lg"
-                        : "text-xl font-medium"
+              activeSession.transcript.map((line) => {
+                const isBookmarked = bookmarkedLines.has(line.id);
+                return (
+                  <div
+                    key={line.id}
+                    className={`p-5 rounded-2xl border transition-all animate-fade-in text-left space-y-2.5 group shadow-xs ${
+                      isBookmarked
+                        ? "border-[var(--primary)] bg-[var(--primary)]/5"
+                        : "border-[var(--border)] bg-[var(--background)] hover:border-[var(--text-muted)]/40"
                     }`}
                   >
-                    {line.text}
-                  </p>
-                </div>
-              ))
+                    <div className="flex justify-between items-center border-b border-[var(--border)]/50 pb-2">
+                      <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] inline-block"></span>
+                        {new Date(line.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </span>
+                      <button
+                        onClick={() => toggleBookmarkLine(line.id)}
+                        className={`text-[11px] px-2 py-0.5 rounded-md transition-colors cursor-pointer opacity-70 hover:opacity-100 ${
+                          isBookmarked
+                            ? "text-[var(--primary)] font-bold bg-[var(--primary)]/10"
+                            : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                        }`}
+                        title="Bookmark paragraph for review"
+                      >
+                        <FontAwesomeIcon icon={faBookmark} className="text-[10px] mr-1" />
+                        {isBookmarked ? "Saved" : "Bookmark"}
+                      </button>
+                    </div>
+
+                    <p
+                      className={`leading-relaxed text-[var(--text)] font-sans ${
+                        fontSize === "sm"
+                          ? "text-sm"
+                          : fontSize === "md"
+                          ? "text-base sm:text-lg"
+                          : fontSize === "lg"
+                          ? "text-lg sm:text-xl"
+                          : "text-xl sm:text-2xl font-medium"
+                      }`}
+                    >
+                      {renderHighlightedTranscript(line.text)}
+                    </p>
+                  </div>
+                );
+              })
             )}
             <div ref={scrollEndRef} />
           </div>
@@ -313,7 +406,7 @@ export const StudentWorkspace: React.FC = () => {
               {activeSession.customVocab.map((term, i) => (
                 <div
                   key={i}
-                  className="p-4 border border-[var(--border)] rounded-xl bg-[var(--background)] space-y-1.5"
+                  className="p-4 border border-[var(--border)] rounded-xl bg-[var(--background)] space-y-1.5 text-left"
                 >
                   <h4 className="font-bold text-xs text-[var(--primary)] font-mono">
                     {term.keyword}

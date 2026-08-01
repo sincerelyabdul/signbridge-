@@ -14,6 +14,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { Navbar } from "./Navbar";
+import { Loader } from "./Loader";
 
 export const LecturerWorkspace: React.FC = () => {
   const { sessionId } = useParams();
@@ -216,12 +217,7 @@ export const LecturerWorkspace: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--text)]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs text-[var(--text-muted)] font-mono">
-            Loading lecture gateway...
-          </span>
-        </div>
+        <Loader label="Loading classroom broadcast..." />
       </div>
     );
   }
@@ -318,21 +314,21 @@ export const LecturerWorkspace: React.FC = () => {
             <div className="border-b border-[var(--border)] pb-3 mb-4 flex items-center justify-between">
               <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
                 <FontAwesomeIcon icon={faBookOpen} className="text-xs text-[var(--primary)]" />
-                Live Broadcast Transcript ({activeSession.transcript?.length || 0})
+                Live Broadcast Transcript Stream ({activeSession.transcript?.length || 0} Paragraphs)
               </h2>
               <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                Broadcasts instantly to all students
+                Broadcasts live to all connected students
               </span>
             </div>
 
             {/* Transcript Stream List */}
-            <div className="flex-1 overflow-y-auto max-h-[55vh] space-y-3 pr-1">
+            <div className="flex-1 overflow-y-auto max-h-[55vh] space-y-4 pr-1">
               {activeSession.transcript?.length === 0 && !interimTranscript ? (
                 <div className="h-full flex flex-col items-center justify-center text-center py-20 text-[var(--text-muted)] space-y-2">
                   <FontAwesomeIcon icon={faWifi} className="text-2xl animate-pulse text-[var(--primary)]" />
                   <p className="font-bold text-xs text-[var(--text)]">Microphone Stream Ready</p>
                   <p className="text-[10px] max-w-xs leading-relaxed">
-                    Click "Start Speaking" above to begin captioning your lecture live for connected students.
+                    Click "Start Broadcast" above to begin captioning your lecture live for connected students.
                   </p>
                 </div>
               ) : (
@@ -340,20 +336,27 @@ export const LecturerWorkspace: React.FC = () => {
                   {activeSession.transcript?.map((line) => (
                     <div
                       key={line.id}
-                      className="p-3.5 border border-[var(--border)] rounded-xl bg-[var(--background)] space-y-1 transition-all animate-fade-in"
+                      className="p-4 border border-[var(--border)] rounded-2xl bg-[var(--background)] space-y-2 transition-all animate-fade-in text-left"
                     >
-                      <span className="text-[9px] font-mono text-[var(--text-muted)] block">
-                        {new Date(line.timestamp).toLocaleTimeString()}
-                      </span>
-                      <p className="text-sm text-[var(--text)] leading-relaxed">{line.text}</p>
+                      <div className="flex items-center justify-between border-b border-[var(--border)]/50 pb-1.5">
+                        <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--primary)] inline-block"></span>
+                          {new Date(line.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-sm sm:text-base text-[var(--text)] leading-relaxed font-sans">{line.text}</p>
                     </div>
                   ))}
 
                   {/* Real-Time Live Speech Interim Drafting Line */}
                   {interimTranscript && (
-                    <div className="p-3.5 border border-[var(--primary)]/30 bg-[var(--primary)]/5 rounded-xl space-y-1 animate-pulse">
-                      <span className="text-[9px] font-mono text-[var(--primary)] font-bold block">
-                        Speaking now...
+                    <div className="p-4 border border-dashed border-[var(--primary)]/50 bg-[var(--primary)]/5 rounded-2xl space-y-1.5 animate-pulse text-left">
+                      <span className="text-[9px] font-mono text-[var(--primary)] font-bold block uppercase tracking-wider">
+                        Live Speech Stream Draft...
                       </span>
                       <p className="text-sm text-[var(--text)] italic leading-relaxed">
                         {interimTranscript}

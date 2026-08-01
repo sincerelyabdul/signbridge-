@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { generateAISummary } from "../services/geminiService";
+import { autoCorrectLectureTranscript } from "../services/autocorrectService";
 
 export type Role = "lecturer" | "student" | null;
 
@@ -89,6 +91,32 @@ const SignBridgeContext = createContext<SignBridgeContextType | undefined>(undef
 
 const offlineSync = typeof window !== "undefined" ? new BroadcastChannel("sb_offline_sync") : null;
 
+/** Format raw speech input into proper sentence capitalization */
+function formatSentence(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+/** Merge continuous speech clauses into readable paragraphs with proper spacing */
+function appendClauseToParagraph(paragraph: string, clause: string): string {
+  const cleanP = paragraph.trim();
+  const cleanC = clause.trim();
+  if (!cleanP) return formatSentence(cleanC);
+  if (!cleanC) return cleanP;
+
+  if (cleanP.toLowerCase().endsWith(cleanC.toLowerCase())) {
+    return cleanP;
+  }
+
+  const endsWithPunct = /[.?!]$/.test(cleanP);
+  const formattedC = endsWithPunct
+    ? cleanC.charAt(0).toUpperCase() + cleanC.slice(1)
+    : cleanC;
+
+  return `${cleanP} ${formattedC}`;
+}
+
 
 
 export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -163,7 +191,11 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         localStorage.setItem("sb_sessions", JSON.stringify(formatted));
       }
     } catch (e) {
-      console.error("Error fetching sessions history:", e);
+      console.warn("Offline/Network notice: Unable to reach Supabase server. Loading cached sessions history.", e);
+      const cached = localStorage.getItem("sb_sessions");
+      if (cached) {
+        try { setSessions(JSON.parse(cached)); } catch (_) {}
+      }
     }
   };
 
@@ -179,15 +211,21 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (error) throw error;
       if (data) {
-        setProfile({
+        const loadedProfile = {
           fullName: data.full_name || "Lecturer",
           institution: data.institution || "SignBridge Academy",
           defaultTitle: data.default_title || "General Science Lecture",
           customVocab: data.custom_vocab || []
-        });
+        };
+        setProfile(loadedProfile);
+        localStorage.setItem(`sb_profile_${userId}`, JSON.stringify(loadedProfile));
       }
     } catch (e) {
-      console.error("Error fetching user profile:", e);
+      console.warn("Offline/Network notice: Unable to reach Supabase server. Loading cached profile.", e);
+      const cached = localStorage.getItem(`sb_profile_${userId}`);
+      if (cached) {
+        try { setProfile(JSON.parse(cached)); } catch (_) {}
+      }
     }
   };
 
@@ -524,15 +562,29 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       return { success: true, isActive: targetData.is_active, sessionId: targetData.id };
     } catch (e: any) {
-      console.error("Error joining live session from Supabase:", e);
+      console.warn("Offline/Network notice: Unable to reach Supabase server while joining session. Attempting local session match.", e);
+      const saved = localStorage.getItem("sb_sessions");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          const localMatch = parsed.find((s: Session) => s.code === code);
+          if (localMatch) {
+            setActiveSession(localMatch);
+            return { success: true, isActive: localMatch.isActive, sessionId: localMatch.id };
+          }
+        } catch (_) {}
+      }
       return { success: false, error: e.message || "Failed to join session" };
     }
   };
 
   const addMockTranscriptLine = async (text: string) => {
     if (!activeSession) return;
-    const cleanText = text.trim();
-    if (!cleanText) return;
+    const rawClean = text.trim();
+    if (!rawClean) return;
+
+    // Real-Time Phonetic Auto-Correction & Academic Dictionary Polish
+    const cleanText = autoCorrectLectureTranscript(rawClean, activeSession.customVocab || []);
 
     const transcriptCopy = [...activeSession.transcript];
     const lastIndex = transcriptCopy.length - 1;
@@ -541,8 +593,15 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let lineId: string = crypto.randomUUID();
     let isUpdate = false;
 
-    // Deduplication check: if new text is an extension or duplicate of the last line within 10 seconds
-    if (lastLine && Date.now() - lastLine.timestamp < 10000) {
+    // Intelligent Paragraph Assembly: Merge continuous speech within 12 seconds into cohesive paragraphs
+    const PARAGRAPH_TIME_WINDOW_MS = 12000;
+    const MAX_PARAGRAPH_LENGTH = 280;
+
+    if (
+      lastLine &&
+      Date.now() - lastLine.timestamp < PARAGRAPH_TIME_WINDOW_MS &&
+      lastLine.text.length < MAX_PARAGRAPH_LENGTH
+    ) {
       const lastClean = lastLine.text.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
       const newClean = cleanText.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -550,12 +609,26 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return; // Exact duplicate -> ignore
       }
 
-      if (newClean.startsWith(lastClean) || (cleanText.length > lastLine.text.length && newClean.includes(lastClean.slice(0, Math.min(20, lastClean.length))))) {
-        // Updated/extended version of previous line -> replace last line
+      if (
+        newClean.startsWith(lastClean) ||
+        (cleanText.length > lastLine.text.length &&
+          newClean.includes(lastClean.slice(0, Math.min(20, lastClean.length))))
+      ) {
+        // Extended version of active clause -> update paragraph text
         transcriptCopy[lastIndex] = {
           ...lastLine,
-          text: cleanText,
-          timestamp: Date.now()
+          text: formatSentence(cleanText),
+          timestamp: Date.now(),
+        };
+        lineId = lastLine.id;
+        isUpdate = true;
+      } else {
+        // Append clause to active paragraph naturally with proper punctuation & spacing
+        const mergedText = appendClauseToParagraph(lastLine.text, cleanText);
+        transcriptCopy[lastIndex] = {
+          ...lastLine,
+          text: mergedText,
+          timestamp: Date.now(),
         };
         lineId = lastLine.id;
         isUpdate = true;
@@ -565,8 +638,8 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!isUpdate) {
       transcriptCopy.push({
         id: lineId,
-        text: cleanText,
-        timestamp: Date.now()
+        text: formatSentence(cleanText),
+        timestamp: Date.now(),
       });
     }
 
@@ -735,32 +808,27 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setIsRecording(false);
 
     const title = activeSession.title || "Class Lecture";
-    const lineCount = activeSession.transcript.length;
-    const hasConcepts = activeSession.conceptCards.length > 0;
-    const conceptsList = hasConcepts
-      ? activeSession.conceptCards.map((c) => c.concept).join(", ")
-      : activeSession.customVocab.map((v) => v.keyword).join(", ") || null;
+    const transcriptLines = (activeSession.transcript || []).filter((t) => t && t.text && t.text.trim().length > 0);
 
-    const fullTranscript = activeSession.transcript.map((t) => t.text).join(" ");
-    const transcriptSnippet = fullTranscript.trim()
-      ? `"${fullTranscript.substring(0, 220)}${fullTranscript.length > 220 ? "..." : ""}"`
-      : "No transcript recorded for this session.";
-
-    const genericSummary = `## ${title}
-
-### Lecture Overview
-This lecture covered **${title}**${conceptsList ? `, focusing on key concepts such as **${conceptsList}**` : ""}.
-
-### Key Takeaways
-1. **Live Classroom Presentation**: Recorded ${lineCount} spoken line${lineCount === 1 ? "" : "s"} during the live class.
-2. **Subject Coverage**: ${hasConcepts ? `Highlighted essential course terms (${conceptsList}) for student reference.` : `Delivered real-time captions and notes for student accessibility.`}
-
-### Transcript Overview
-${transcriptSnippet}`;
+    let finalSummary = "";
+    if (transcriptLines.length === 0) {
+      finalSummary = `# ${title}\n\nNo spoken transcript was recorded during this live session. Start speaking during a live classroom broadcast to record captions and generate automated AI summaries.`;
+    } else {
+      try {
+        finalSummary = await generateAISummary(
+          title,
+          transcriptLines,
+          activeSession.conceptCards || []
+        );
+      } catch (e) {
+        console.warn("Failed to generate AI summary on session end:", e);
+        finalSummary = `# ${title}\n\nSummary unavailable.`;
+      }
+    }
 
     const finalSession: Session = {
       ...activeSession,
-      summary: genericSummary,
+      summary: finalSummary,
       isActive: false
     };
 
@@ -774,7 +842,7 @@ ${transcriptSnippet}`;
         await supabase
           .from("sessions")
           .update({
-            summary: genericSummary,
+            summary: finalSummary,
             is_active: false
           })
           .eq("id", activeSession.id);
