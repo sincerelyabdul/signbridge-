@@ -53,7 +53,7 @@ export async function parseLecturePrimer(
               details: String(item.details || "").trim(),
               aliases: item.aliases ? String(item.aliases).trim() : undefined,
             }))
-            .filter((v) => v.keyword.length > 0 && v.definition.length > 0);
+            .filter((v: CustomTerm) => v.keyword.length > 0 && v.definition.length > 0);
 
           if (extractedVocab.length > 0) {
             return {

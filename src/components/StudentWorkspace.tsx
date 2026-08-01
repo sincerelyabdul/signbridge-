@@ -12,7 +12,6 @@ import {
   faCheck,
   faShareNodes,
   faBookmark,
-  faThumbsUp,
 } from "@fortawesome/free-solid-svg-icons";
 import { Navbar } from "./Navbar";
 import { Loader } from "./Loader";
