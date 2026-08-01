@@ -152,7 +152,7 @@ export const Dashboard: React.FC = () => {
 
       {/* Sub-Header Navigation Tabs */}
       <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto flex items-center justify-between h-14">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between min-h-[56px] h-auto sm:h-14 py-2.5 sm:py-0 gap-2">
           {/* View Switcher Tabs */}
           <div className="flex items-center gap-2">
             <button
@@ -425,7 +425,7 @@ export const Dashboard: React.FC = () => {
                     </div>
 
                     {/* Quick Add Form */}
-                    <form onSubmit={handleAddKeyterm} className="flex gap-2 pt-1">
+                    <form onSubmit={handleAddKeyterm} className="flex flex-col sm:flex-row gap-2 pt-1">
                       <input
                         type="text"
                         placeholder="Keyword (e.g. Mitochondria)"
@@ -435,18 +435,18 @@ export const Dashboard: React.FC = () => {
                       />
                       <button
                         type="submit"
-                        className="px-4 h-10 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--primary)] text-[var(--text)] rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                        className="px-4 h-10 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--primary)] text-[var(--text)] rounded-xl text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
                       >
                         <FontAwesomeIcon icon={faPlus} className="text-xs" /> Add Term
                       </button>
                     </form>
                   </div>
 
-                  <div className="flex gap-4 pt-4">
+                  <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 pt-4">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(1)}
-                      className="h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-2 shrink-0"
+                      className="w-full sm:w-auto h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center justify-center gap-2 shrink-0"
                     >
                       <FontAwesomeIcon icon={faArrowLeft} className="text-xs" /> Back
                     </button>
@@ -458,7 +458,7 @@ export const Dashboard: React.FC = () => {
                         }
                         setCurrentStep(3);
                       }}
-                      className="flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm shadow-[var(--primary)]/20"
+                      className="w-full sm:flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm shadow-[var(--primary)]/20"
                     >
                       Next: Review & Launch <FontAwesomeIcon icon={faArrowRight} className="text-xs" />
                     </button>
@@ -502,11 +502,11 @@ export const Dashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex gap-4 pt-4">
+                  <div className="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 pt-4">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(2)}
-                      className="h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-2 shrink-0"
+                      className="w-full sm:w-auto h-12 px-6 border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center justify-center gap-2 shrink-0"
                     >
                       <FontAwesomeIcon icon={faArrowLeft} className="text-xs" /> Back
                     </button>
@@ -514,7 +514,7 @@ export const Dashboard: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleFinalLaunch}
-                      className="flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-[var(--primary)]/20"
+                      className="w-full sm:flex-1 h-12 bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-[var(--primary)]/20"
                     >
                       <FontAwesomeIcon icon={faMicrophone} className="text-base" /> Launch Live Classroom
                     </button>

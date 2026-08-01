@@ -65,10 +65,7 @@ function AppRoutes() {
   if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--text)]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs text-[var(--text-muted)] font-mono">Loading SignBridge...</span>
-        </div>
+        <Loader label="Loading SignBridge..." />
       </div>
     );
   }
