@@ -29,12 +29,15 @@ export async function parseLecturePrimer(
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
 
   if (supabaseUrl && supabaseAnonKey) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
       const response = await fetch(`${supabaseUrl}/functions/v1/gemini-extract`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supabaseAnonKey}`,
@@ -42,8 +45,12 @@ export async function parseLecturePrimer(
         },
         body: JSON.stringify({ primerText: cleanPrimer, lectureTitle }),
       });
+      clearTimeout(timeout);
 
-      if (response.ok) {
+      if (!response.ok) {
+        // Log the actual HTTP error (e.g. 502) so it's visible in DevTools
+        console.warn(`[geminiService] gemini-extract returned ${response.status} — falling back to local parser.`);
+      } else {
         const data = await response.json();
         if (Array.isArray(data.extractedVocab) && data.extractedVocab.length > 0) {
           const extractedVocab: CustomTerm[] = data.extractedVocab
@@ -63,8 +70,9 @@ export async function parseLecturePrimer(
           }
         }
       }
-    } catch (err) {
-      console.warn("Gemini Edge Function call for concept extraction failed, using fallback parser:", err);
+    } catch (err: any) {
+      const reason = err?.name === "AbortError" ? "request timed out" : String(err);
+      console.warn(`[geminiService] gemini-extract failed (${reason}) — falling back to local parser.`);
     }
   }
 
@@ -176,12 +184,15 @@ export async function generateAISummary(
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
 
   if (supabaseUrl && supabaseAnonKey) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
       const response = await fetch(`${supabaseUrl}/functions/v1/gemini-extract`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${supabaseAnonKey}`,
@@ -194,15 +205,19 @@ export async function generateAISummary(
           conceptCards,
         }),
       });
+      clearTimeout(timeout);
 
-      if (response.ok) {
+      if (!response.ok) {
+        console.warn(`[geminiService] gemini-extract (summary) returned ${response.status} — falling back to local summary.`);
+      } else {
         const data = await response.json();
         if (data.summary && data.summary.length > 20) {
           return data.summary;
         }
       }
-    } catch (e) {
-      console.warn("Gemini AI Edge Function call for summary failed, fallback to smart structured summary:", e);
+    } catch (e: any) {
+      const reason = e?.name === "AbortError" ? "request timed out" : String(e);
+      console.warn(`[geminiService] gemini-extract (summary) failed (${reason}) — falling back to local summary.`);
     }
   }
 

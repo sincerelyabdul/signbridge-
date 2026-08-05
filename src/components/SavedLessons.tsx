@@ -128,7 +128,7 @@ export const SavedLessons: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
+    <div className="min-h-screen pt-12 bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
       {/* Header */}
       <Navbar
         variant="review"

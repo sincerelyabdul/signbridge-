@@ -8,6 +8,8 @@ import {
   faUser,
   faShieldHalved,
   faSpinner,
+  faEye,
+  faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import { Navbar } from "./Navbar";
 
@@ -20,6 +22,7 @@ export const AuthPage: React.FC = () => {
   // Inputs
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
 
   // States
@@ -60,7 +63,7 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
+    <div className="min-h-screen pt-12 bg-[var(--background)] text-[var(--text)] transition-colors duration-150">
 
       {/* Top bar */}
       <Navbar variant="auth" onBack={() => navigate("/")} />
@@ -118,14 +121,23 @@ export const AuthPage: React.FC = () => {
               <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">Password</label>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-3 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
+                  className="w-full pl-9 pr-10 py-3 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-sm transition-colors"
                 />
                 <FontAwesomeIcon icon={faKey} className="absolute left-3 top-3.5 text-xs text-[var(--text-muted)]" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
+                  title={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
+                </button>
               </div>
             </div>
 

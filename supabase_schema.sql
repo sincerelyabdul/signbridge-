@@ -17,20 +17,27 @@ create table if not exists public.profiles (
 alter table public.profiles enable row level security;
 
 -- Policies
+drop policy if exists "Allow public read access to profiles" on public.profiles;
 create policy "Allow public read access to profiles" on public.profiles
   for select using (true);
 
+drop policy if exists "Allow users to update their own profile" on public.profiles;
 create policy "Allow users to update their own profile" on public.profiles
-  for update using (auth.uid() = id);
+  for update using ((select auth.uid()) = id);
 
+drop policy if exists "Allow users to insert their own profile" on public.profiles;
 create policy "Allow users to insert their own profile" on public.profiles
-  for insert with check (auth.uid() = id);
+  for insert with check ((select auth.uid()) = id);
 
 
 -- 2. PROFILE TRIGGER
 -- Automatically creates a profile record in public.profiles when a new user signs up in auth.users
 create or replace function public.handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
 begin
   insert into public.profiles (id, full_name, institution, default_title, custom_vocab)
   values (
@@ -42,7 +49,10 @@ begin
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
+
+-- Revoke direct RPC execution from public API roles for security definer trigger function
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
 
 -- Recreate trigger safety
 drop trigger if exists on_auth_user_created on auth.users;
@@ -66,15 +76,29 @@ create table if not exists public.sessions (
 -- Ensure custom_vocab is added if the sessions table already existed
 alter table public.sessions add column if not exists custom_vocab jsonb default '[]'::jsonb;
 
+-- Covering Index for Foreign Key (lecturer_id)
+create index if not exists idx_sessions_lecturer_id on public.sessions (lecturer_id);
+
 -- Enable RLS
 alter table public.sessions enable row level security;
 
 -- Policies
+drop policy if exists "Allow public read access to sessions" on public.sessions;
 create policy "Allow public read access to sessions" on public.sessions
   for select using (true);
 
-create policy "Allow lecturers to manage their own sessions" on public.sessions
-  for all using (auth.uid() = lecturer_id);
+drop policy if exists "Allow lecturers to manage their own sessions" on public.sessions;
+drop policy if exists "Allow lecturers to insert their own sessions" on public.sessions;
+create policy "Allow lecturers to insert their own sessions" on public.sessions
+  for insert with check ((select auth.uid()) = lecturer_id);
+
+drop policy if exists "Allow lecturers to update their own sessions" on public.sessions;
+create policy "Allow lecturers to update their own sessions" on public.sessions
+  for update using ((select auth.uid()) = lecturer_id);
+
+drop policy if exists "Allow lecturers to delete their own sessions" on public.sessions;
+create policy "Allow lecturers to delete their own sessions" on public.sessions
+  for delete using ((select auth.uid()) = lecturer_id);
 
 
 -- 4. TRANSCRIPTS TABLE (Real-time live captions)
@@ -85,19 +109,24 @@ create table if not exists public.transcripts (
   timestamp timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- Covering Index for Foreign Key (session_id)
+create index if not exists idx_transcripts_session_id on public.transcripts (session_id);
+
 -- Enable RLS
 alter table public.transcripts enable row level security;
 
 -- Policies
+drop policy if exists "Allow public read access to transcripts" on public.transcripts;
 create policy "Allow public read access to transcripts" on public.transcripts
   for select using (true);
 
+drop policy if exists "Allow insert access to transcripts" on public.transcripts;
 create policy "Allow insert access to transcripts" on public.transcripts
   for insert with check (
     exists (
       select 1 from public.sessions
       where sessions.id = session_id
-      and sessions.lecturer_id = auth.uid()
+      and sessions.lecturer_id = (select auth.uid())
     )
   );
 
@@ -112,21 +141,28 @@ create table if not exists public.concept_cards (
   timestamp timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- Covering Index for Foreign Key (session_id)
+create index if not exists idx_concept_cards_session_id on public.concept_cards (session_id);
+
 -- Enable RLS
 alter table public.concept_cards enable row level security;
 
+
 -- Policies
+drop policy if exists "Allow public read access to concept cards" on public.concept_cards;
 create policy "Allow public read access to concept cards" on public.concept_cards
   for select using (true);
 
+drop policy if exists "Allow insert access to concept cards" on public.concept_cards;
 create policy "Allow insert access to concept cards" on public.concept_cards
   for insert with check (
     exists (
       select 1 from public.sessions
       where sessions.id = session_id
-      and sessions.lecturer_id = auth.uid()
+      and sessions.lecturer_id = (select auth.uid())
     )
   );
+
 
 
 -- 6. ENABLE REALTIME BROADCASTS
@@ -157,3 +193,19 @@ begin
     alter publication supabase_realtime add table public.concept_cards;
   end if;
 end $$;
+
+
+-- 7. SECURITY HARDENING FOR EXTRA FUNCTIONS
+-- Harden public.rls_auto_enable if present in the database
+do $$
+begin
+  if exists (
+    select 1 from pg_proc p
+    join pg_namespace n on p.pronamespace = n.oid
+    where n.nspname = 'public' and p.proname = 'rls_auto_enable'
+  ) then
+    execute 'revoke execute on function public.rls_auto_enable() from public, anon, authenticated;';
+    execute 'alter function public.rls_auto_enable() set search_path = '''';';
+  end if;
+end $$;
+

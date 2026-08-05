@@ -116,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   );
 
   // ── Base wrapper ───────────────────────────────────────────────────────────
-  const base = "sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 h-12 flex items-center justify-between";
+  const base = "fixed top-0 left-0 right-0 z-30 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur-md px-4 sm:px-6 h-12 flex items-center justify-between";
 
   // ─────────────────────────────────────────────────────────────────────────
   // LANDING

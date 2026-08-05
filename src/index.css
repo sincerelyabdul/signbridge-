@@ -142,3 +142,68 @@ button, [role="button"] {
 @keyframes l8-2 {
   100% { transform: rotate(-180deg) translateX(25px); }
 }
+
+/* ── Dashboard Redesign Animations ── */
+
+@keyframes stepEnter {
+  from { opacity: 0; transform: translateX(18px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+@keyframes stepExit {
+  from { opacity: 1; transform: translateX(0)     scale(1); }
+  to   { opacity: 0; transform: translateX(-18px) scale(0.98); }
+}
+
+@keyframes tagPop {
+  0%   { opacity: 0; transform: scale(0.6); }
+  70%  { transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes launchPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(var(--primary-rgb, 0,212,170), 0.5); }
+  70%  { box-shadow: 0 0 0 18px rgba(var(--primary-rgb, 0,212,170), 0); }
+  100% { box-shadow: 0 0 0 0   rgba(var(--primary-rgb, 0,212,170), 0); }
+}
+
+@keyframes broadcastRing {
+  0%   { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes shimmerSlide {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.animate-step-enter {
+  animation: stepEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-tag-pop {
+  animation: tagPop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-launch-pulse {
+  animation: launchPulse 1.6s ease-out infinite;
+}
+
+.animate-broadcast-ring {
+  animation: broadcastRing 1.4s ease-out infinite;
+}
+
+/* Shimmer text effect for "LIVE" badge */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    color-mix(in srgb, var(--primary) 60%, white) 50%,
+    var(--primary) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmerSlide 2s linear infinite;
+}
