@@ -11,6 +11,9 @@ import {
   faRadio,
   faBookOpen,
   faPlus,
+  faCopy,
+  faCheck,
+  faShareNodes,
 } from "@fortawesome/free-solid-svg-icons";
 import { useSpeechToText } from "../hooks/useSpeechToText";
 import { Navbar } from "./Navbar";
@@ -28,6 +31,8 @@ export const LecturerWorkspace: React.FC = () => {
   const [sessionKeyword, setSessionKeyword] = useState("");
   const [sessionAliases, setSessionAliases] = useState("");
   const [sessionDefinition, setSessionDefinition] = useState("");
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Refs
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -205,6 +210,21 @@ export const LecturerWorkspace: React.FC = () => {
     setCustomText("");
   };
 
+  const handleCopyCode = () => {
+    if (!activeSession?.code) return;
+    navigator.clipboard.writeText(activeSession.code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyLink = () => {
+    if (!activeSession?.code) return;
+    const link = `${window.location.origin}/student/${activeSession.code}`;
+    navigator.clipboard.writeText(link);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
   const handleEndSession = async () => {
     const summaryId = await endSession();
     if (summaryId) {
@@ -241,12 +261,13 @@ export const LecturerWorkspace: React.FC = () => {
       )}
 
       {/* Top Workspace Bar */}
-      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-3 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Controls Row: Microphone Toggle & Volume Analyzer */}
+        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
           <button
             onClick={toggleRecording}
             disabled={!hasAssemblyAIKey}
-            className={`h-10 px-5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50 ${
+            className={`h-10 px-4 sm:px-5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50 shrink-0 ${
               isRecording
                 ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
                 : "bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-black"
@@ -254,7 +275,7 @@ export const LecturerWorkspace: React.FC = () => {
           >
             {isRecording ? (
               <>
-                <FontAwesomeIcon icon={faMicrophoneSlash} className="text-xs" /> Pause Microphone
+                <FontAwesomeIcon icon={faMicrophoneSlash} className="text-xs" /> Pause Mic
               </>
             ) : (
               <>
@@ -264,7 +285,7 @@ export const LecturerWorkspace: React.FC = () => {
           </button>
 
           {/* Audio Wave Volume Meter */}
-          <div className="h-10 flex items-center gap-1 px-3 border border-[var(--border)] rounded-xl bg-[var(--background)]">
+          <div className="h-10 flex items-center gap-1 px-3 border border-[var(--border)] rounded-xl bg-[var(--background)] shrink-0">
             {isRecording ? (
               Array.from({ length: 10 }).map((_, i) => {
                 const height = Math.max(
@@ -287,34 +308,63 @@ export const LecturerWorkspace: React.FC = () => {
           </div>
         </div>
 
-        {/* Engine Connection Status */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 rounded-lg">
-            <FontAwesomeIcon icon={faRadio} className={`text-[12px] ${connectionStatus === "connected" ? "text-[var(--primary)] animate-pulse" : "text-yellow-500"}`} />
-            {connectionStatus === "connected"
-              ? "Connected & Live"
-              : connectionStatus === "connecting"
-              ? "Connecting..."
-              : "Offline"}
-          </span>
-          <button
-            onClick={() => setShowTerminateModal(true)}
-            className="h-9 px-3 text-[10px] font-bold border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-          >
-            <FontAwesomeIcon icon={faRightFromBracket} className="text-[12px]" /> End Lecture
-          </button>
+        {/* Room Code & Status Info Row */}
+        <div className="flex items-center justify-between md:justify-end gap-2.5 flex-wrap">
+          {/* Room Code & Copy Controls for Lecturer */}
+          <div className="flex items-center gap-1.5 border border-[var(--border)] rounded-lg bg-[var(--background)] px-2.5 py-1.5 text-xs max-w-full overflow-x-auto">
+            <span className="text-[var(--text-muted)] text-[11px] font-mono whitespace-nowrap">Room Code:</span>
+            <span className="font-mono font-bold text-[var(--text)] text-xs tracking-wider whitespace-nowrap">{activeSession.code}</span>
+            <div className="flex items-center gap-1 ml-1 pl-2 border-l border-[var(--border)] shrink-0">
+              <button
+                onClick={handleCopyCode}
+                className="px-2 py-0.5 rounded text-[11px] font-medium border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1"
+                title="Copy Room Code"
+              >
+                <FontAwesomeIcon icon={copiedCode ? faCheck : faCopy} className={`text-[10px] ${copiedCode ? "text-[var(--primary)]" : ""}`} />
+                <span>{copiedCode ? "Copied" : "Copy Code"}</span>
+              </button>
+              <button
+                onClick={handleCopyLink}
+                className="px-2 py-0.5 rounded text-[11px] font-medium border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1"
+                title="Copy Invite Link"
+              >
+                <FontAwesomeIcon icon={copiedLink ? faCheck : faShareNodes} className={`text-[10px] ${copiedLink ? "text-[var(--primary)]" : ""}`} />
+                <span>{copiedLink ? "Link Copied" : "Copy Link"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Engine Connection Status & End Lecture */}
+          <div className="flex items-center gap-2 ml-auto md:ml-0">
+            <span className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1.5 border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 rounded-lg whitespace-nowrap">
+              <FontAwesomeIcon icon={faRadio} className={`text-[12px] ${connectionStatus === "connected" ? "text-[var(--primary)] animate-pulse" : "text-yellow-500"}`} />
+              <span className="hidden sm:inline">
+                {connectionStatus === "connected"
+                  ? "Connected & Live"
+                  : connectionStatus === "connecting"
+                  ? "Connecting..."
+                  : "Offline"}
+              </span>
+            </span>
+            <button
+              onClick={() => setShowTerminateModal(true)}
+              className="h-9 px-3 text-[10px] font-bold border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap"
+            >
+              <FontAwesomeIcon icon={faRightFromBracket} className="text-[12px]" /> End Lecture
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Workspace Body */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
         {/* Left Column (8/12): Live Transcript Feed */}
         <div className="lg:col-span-8 space-y-4">
-          <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] p-5 sm:p-6 text-left flex flex-col min-h-[560px] shadow-sm">
-            <div className="border-b border-[var(--border)] pb-3 mb-4 flex items-center justify-between">
+          <div className="border border-[var(--border)] rounded-2xl bg-[var(--surface)] p-4 sm:p-6 text-left flex flex-col min-h-[420px] sm:min-h-[560px] shadow-sm">
+            <div className="border-b border-[var(--border)] pb-3 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2">
               <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
                 <FontAwesomeIcon icon={faBookOpen} className="text-xs text-[var(--primary)]" />
-                Live Broadcast Transcript Stream ({activeSession.transcript?.length || 0} Paragraphs)
+                Live Broadcast Stream ({activeSession.transcript?.length || 0} Paragraphs)
               </h2>
               <span className="text-[10px] font-mono text-[var(--text-muted)]">
                 Broadcasts live to all connected students
@@ -322,13 +372,13 @@ export const LecturerWorkspace: React.FC = () => {
             </div>
 
             {/* Transcript Stream List */}
-            <div className="flex-1 overflow-y-auto max-h-[55vh] space-y-4 pr-1">
+            <div className="flex-1 overflow-y-auto max-h-[50vh] sm:max-h-[55vh] space-y-4 pr-1">
               {activeSession.transcript?.length === 0 && !interimTranscript ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-20 text-[var(--text-muted)] space-y-2">
-                  <FontAwesomeIcon icon={faWifi} className="text-2xl animate-pulse text-[var(--primary)]" />
-                  <p className="font-bold text-xs text-[var(--text)]">Microphone Stream Ready</p>
-                  <p className="text-[10px] max-w-xs leading-relaxed">
-                    Click "Start Broadcast" above to begin captioning your lecture live for connected students.
+                <div className="h-full flex flex-col items-center justify-center text-center py-12 sm:py-20 text-[var(--text-muted)] space-y-3 px-2">
+                  <FontAwesomeIcon icon={faWifi} className="text-2xl sm:text-3xl animate-pulse text-[var(--primary)]" />
+                  <p className="font-bold text-xs sm:text-sm text-[var(--text)]">Microphone Stream Ready</p>
+                  <p className="text-[11px] sm:text-xs max-w-xs leading-relaxed">
+                    Click "Start Speaking" above to begin captioning your lecture live for connected students.
                   </p>
                 </div>
               ) : (

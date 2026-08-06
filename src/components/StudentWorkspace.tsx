@@ -33,6 +33,7 @@ export const StudentWorkspace: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [mobileTab, setMobileTab] = useState<"live" | "vocab">("live");
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [bookmarkedLines, setBookmarkedLines] = useState<Set<string>>(new Set());
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -86,11 +87,18 @@ export const StudentWorkspace: React.FC = () => {
     navigate("/student-entry");
   };
 
+  const handleCopyCode = () => {
+    if (!activeSession?.code) return;
+    navigator.clipboard.writeText(activeSession.code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
   const handleCopyInviteLink = () => {
     const inviteUrl = window.location.href;
     navigator.clipboard.writeText(inviteUrl);
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const toggleBookmarkLine = (lineId: string) => {
@@ -182,116 +190,132 @@ export const StudentWorkspace: React.FC = () => {
       )}
 
       {/* Top Controls Toolbar */}
-      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 flex-wrap">
+      <header className="border-b border-[var(--border)] bg-[var(--surface)] px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Live Broadcast Badge & Room Code */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between sm:justify-start gap-2.5">
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--primary)] opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[var(--primary)]"></span>
             </span>
-            <span className="text-xs font-bold text-[var(--text)] uppercase tracking-wider flex items-center gap-1.5">
+            <span className="text-xs font-bold text-[var(--text)] uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap">
               <FontAwesomeIcon icon={faRadio} className="text-[13px] text-[var(--primary)]" />
               Live Classroom Feed
             </span>
           </div>
 
-          {/* Room Code Badge with Copy Link */}
-          <button
-            onClick={handleCopyInviteLink}
-            className="text-[10px] font-mono border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
-            title="Click to copy invite link"
-          >
-            <FontAwesomeIcon icon={faShareNodes} className="text-[10px] text-[var(--primary)]" />
-            <span>Room Code: <strong className="text-[var(--text)]">{activeSession.code}</strong></span>
-            <FontAwesomeIcon icon={copiedCode ? faCheck : faCopy} className="text-[10px]" />
-          </button>
+          {/* Room Code Badge with Copy Options */}
+          <div className="flex items-center gap-1.5 border border-[var(--border)] rounded-lg bg-[var(--background)] px-2.5 py-1 text-xs max-w-full overflow-x-auto">
+            <span className="text-[var(--text-muted)] text-[11px] font-mono whitespace-nowrap">Room Code:</span>
+            <span className="font-mono font-bold text-[var(--text)] text-xs tracking-wider whitespace-nowrap">{activeSession.code}</span>
+            <div className="flex items-center gap-1 ml-1 pl-2 border-l border-[var(--border)] shrink-0">
+              <button
+                onClick={handleCopyCode}
+                className="px-2 py-0.5 rounded text-[11px] font-medium border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1"
+                title="Copy Room Code"
+              >
+                <FontAwesomeIcon icon={copiedCode ? faCheck : faCopy} className={`text-[10px] ${copiedCode ? "text-[var(--primary)]" : ""}`} />
+                <span>{copiedCode ? "Copied" : "Copy Code"}</span>
+              </button>
+              <button
+                onClick={handleCopyInviteLink}
+                className="px-2 py-0.5 rounded text-[11px] font-medium border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--surface)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer flex items-center gap-1"
+                title="Copy Invite Link"
+              >
+                <FontAwesomeIcon icon={copiedLink ? faCheck : faShareNodes} className={`text-[10px] ${copiedLink ? "text-[var(--primary)]" : ""}`} />
+                <span>{copiedLink ? "Link Copied" : "Copy Link"}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Mobile View Toggle */}
-        <div className="flex lg:hidden border border-[var(--border)] rounded-lg bg-[var(--background)] p-0.5">
-          <button
-            onClick={() => setMobileTab("live")}
-            className={`px-3 py-1 text-[10px] font-semibold rounded-md transition-colors ${
-              mobileTab === "live"
-                ? "bg-[var(--primary)] text-black font-bold"
-                : "text-[var(--text-muted)]"
-            }`}
-          >
-            Live Stream
-          </button>
-          {activeSession.customVocab?.length > 0 && (
+        {/* Controls Row on Mobile: Mobile View Switcher & Text Size Adjuster */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border)]/60">
+          {/* Mobile View Toggle */}
+          <div className="flex lg:hidden border border-[var(--border)] rounded-lg bg-[var(--background)] p-0.5">
             <button
-              onClick={() => setMobileTab("vocab")}
-              className={`px-3 py-1 text-[10px] font-semibold rounded-md transition-colors ${
-                mobileTab === "vocab"
+              onClick={() => setMobileTab("live")}
+              className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                mobileTab === "live"
                   ? "bg-[var(--primary)] text-black font-bold"
                   : "text-[var(--text-muted)]"
               }`}
             >
-              Vocabulary ({activeSession.customVocab.length})
+              Live Stream
             </button>
-          )}
-        </div>
+            {activeSession.customVocab?.length > 0 && (
+              <button
+                onClick={() => setMobileTab("vocab")}
+                className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                  mobileTab === "vocab"
+                    ? "bg-[var(--primary)] text-black font-bold"
+                    : "text-[var(--text-muted)]"
+                }`}
+              >
+                Vocabulary ({activeSession.customVocab.length})
+              </button>
+            )}
+          </div>
 
-        {/* Accessibility Font Size Controls */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] mr-1 hidden sm:inline">
-            Text Size
-          </span>
-          <button
-            onClick={() => setFontSize("sm")}
-            className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
-              fontSize === "sm"
-                ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            A-
-          </button>
-          <button
-            onClick={() => setFontSize("md")}
-            className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
-              fontSize === "md"
-                ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            A
-          </button>
-          <button
-            onClick={() => setFontSize("lg")}
-            className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
-              fontSize === "lg"
-                ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            A+
-          </button>
-          <button
-            onClick={() => setFontSize("xl")}
-            className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
-              fontSize === "xl"
-                ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
-                : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            A++
-          </button>
+          {/* Accessibility Font Size Controls */}
+          <div className="flex items-center gap-1 shrink-0 ml-auto sm:ml-0">
+            <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] mr-1 hidden md:inline">
+              Text Size
+            </span>
+            <button
+              onClick={() => setFontSize("sm")}
+              className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
+                fontSize === "sm"
+                  ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
+                  : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              A-
+            </button>
+            <button
+              onClick={() => setFontSize("md")}
+              className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
+                fontSize === "md"
+                  ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
+                  : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              A
+            </button>
+            <button
+              onClick={() => setFontSize("lg")}
+              className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
+                fontSize === "lg"
+                  ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
+                  : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              A+
+            </button>
+            <button
+              onClick={() => setFontSize("xl")}
+              className={`px-2 py-1 text-xs border rounded-md font-mono transition-colors cursor-pointer ${
+                fontSize === "xl"
+                  ? "bg-[var(--primary)] text-black font-bold border-[var(--primary)]"
+                  : "border-[var(--border)] bg-[var(--background)] text-[var(--text-muted)] hover:text-[var(--text)]"
+              }`}
+            >
+              A++
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Workspace Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
         {/* Live AssemblyAI Caption Feed */}
         <section
-          className={`flex flex-col border border-[var(--border)] rounded-2xl bg-[var(--surface)] overflow-hidden min-h-[580px] shadow-sm transition-all ${
+          className={`flex flex-col border border-[var(--border)] rounded-2xl bg-[var(--surface)] overflow-hidden min-h-[420px] sm:min-h-[580px] shadow-sm transition-all ${
             activeSession.customVocab?.length > 0 ? "lg:col-span-8" : "lg:col-span-12"
           } ${mobileTab === "live" ? "block" : "hidden lg:flex"}`}
         >
           {/* Feed Sub-Header */}
-          <div className="border-b border-[var(--border)] px-5 py-3.5 bg-[var(--background)] flex items-center justify-between">
+          <div className="border-b border-[var(--border)] px-4 sm:px-5 py-3 bg-[var(--background)] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FontAwesomeIcon icon={faBookOpen} className="text-sm text-[var(--primary)]" />
               <span className="text-xs font-bold text-[var(--text)]">
@@ -307,7 +331,7 @@ export const StudentWorkspace: React.FC = () => {
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 p-6 sm:p-8 overflow-y-auto space-y-5 max-h-[65vh]"
+            className="flex-1 p-4 sm:p-8 overflow-y-auto space-y-4 sm:space-y-5 max-h-[60vh] sm:max-h-[65vh]"
           >
             {activeSession.transcript?.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-[var(--text-muted)] py-20 space-y-3">

@@ -29,6 +29,16 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { mode, primerText, lectureTitle, title, transcriptLines, conceptCards } = body;
 
+    // Diagnostic mode: query Google AI Studio for available models
+    if (mode === "list_models") {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
+      const listData = await listRes.json();
+      return new Response(
+        JSON.stringify({ status: listRes.status, listData }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     let prompt = "";
 
     if (mode === "summary") {
@@ -103,13 +113,15 @@ ${textToExtract.trim()}
     }
 
     const models = [
+      "gemini-2.5-flash",
       "gemini-2.0-flash",
+      "gemini-flash-latest",
+      "gemini-pro-latest",
       "gemini-2.0-flash-lite",
-      "gemini-1.5-flash-latest",
-      "gemini-1.5-pro-latest"
     ];
     let response: Response | null = null;
     let lastErrText = "";
+    const attemptErrors: Array<{ model: string; status: number; error: string }> = [];
 
     for (const model of models) {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
@@ -130,14 +142,22 @@ ${textToExtract.trim()}
         break;
       } else {
         lastErrText = await res.text();
-        console.warn(`[gemini-extract Edge Function] Model ${model} failed (${res.status}):`, lastErrText);
+        attemptErrors.push({ model, status: res.status, error: lastErrText });
+        console.error(`[gemini-extract ERROR] Model ${model} failed (${res.status}):`, lastErrText);
       }
     }
 
     if (!response || !response.ok) {
+      console.error("[gemini-extract CRITICAL ERROR] All Gemini models failed or rate limited:", JSON.stringify(attemptErrors));
       return new Response(
-        JSON.stringify({ error: "Gemini API failed on all candidate models", details: lastErrText }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Gemini API rate limited or unavailable on candidate models",
+          fallback: true,
+          attempts: attemptErrors,
+          extractedVocab: [],
+          summary: "",
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
