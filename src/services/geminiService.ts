@@ -17,31 +17,53 @@ export interface SessionContext {
 }
 
 /**
- * Helper to call Gemini API directly if Supabase Edge Function is unavailable or 502
+ * In-House Direct Gemini API Orchestrator (Client / App-Level Execution)
  */
 async function callDirectGeminiAPI(prompt: string, apiKey: string, isJson: boolean = false): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: isJson ? { responseMimeType: "application/json" } : {},
-        }),
+  const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-pro-latest"];
+
+  for (const model of candidateModels) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              ...(isJson ? { responseMimeType: "application/json" } : {}),
+            },
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) return text;
       }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch (_) {
-    return null;
+    } catch (_) {
+      // try next model
+    }
   }
+  return null;
 }
 
 /**
- * Extracts key course vocabulary & definitions from lecture notes/concept text using Gemini AI.
+ * Retrieves configured Gemini API Key (User Settings > Environment Variable)
+ */
+export function getInHouseGeminiKey(): string | null {
+  if (typeof window !== "undefined") {
+    const userKey = localStorage.getItem("sb_user_gemini_key");
+    if (userKey && userKey.trim().length > 10) return userKey.trim();
+  }
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+  return envKey && envKey.trim().length > 10 ? envKey.trim() : null;
+}
+
+/**
+ * Extracts key course vocabulary & definitions from lecture notes using In-House Hybrid Architecture.
  */
 export async function parseLecturePrimer(
   primerText: string,
@@ -52,9 +74,41 @@ export async function parseLecturePrimer(
     return { extractedVocab: [], summaryPrimer: "" };
   }
 
+  // ── TIER 1: In-House Direct Gemini AI (App-Layer Execution) ─────────────────
+  const directApiKey = getInHouseGeminiKey();
+  if (directApiKey) {
+    const prompt = `You are an educational AI assistant. Extract 4 to 8 key technical terms and definitions for the lecture topic "${lectureTitle}".
+CRITICAL: Return ONLY a JSON array of objects with keys "keyword", "definition", "details", "aliases".
+
+Document Text:
+"""
+${cleanPrimer.slice(0, 3000)}
+"""`;
+    const directResult = await callDirectGeminiAPI(prompt, directApiKey, true);
+    if (directResult) {
+      try {
+        const parsed = JSON.parse(directResult);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const extractedVocab: CustomTerm[] = parsed
+            .map((item: any) => ({
+              keyword: String(item.keyword || "").trim(),
+              definition: String(item.definition || "").trim(),
+              details: String(item.details || `Concept for ${lectureTitle}`).trim(),
+              aliases: item.aliases ? String(item.aliases).trim() : undefined,
+            }))
+            .filter((v) => v.keyword.length > 0 && v.definition.length > 0);
+
+          if (extractedVocab.length > 0) {
+            return { extractedVocab, summaryPrimer: cleanPrimer.slice(0, 150) };
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ── TIER 2: Supabase Edge Proxy Fallback ───────────────────────────────────
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
-  const directGeminiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 
   if (supabaseUrl && supabaseAnonKey) {
     try {
@@ -85,40 +139,11 @@ export async function parseLecturePrimer(
             .filter((v: CustomTerm) => v.keyword.length > 0 && v.definition.length > 0);
 
           if (extractedVocab.length > 0) {
-            return {
-              extractedVocab,
-              summaryPrimer: cleanPrimer.slice(0, 150),
-            };
-          }
-        }
-      } else {
-        console.info(`[geminiService] gemini-extract returned ${response.status} — using fallback generator.`);
-      }
-    } catch (err: any) {
-      const reason = err?.name === "AbortError" ? "request timed out" : String(err);
-      console.info(`[geminiService] gemini-extract unavailable (${reason}) — using fallback generator.`);
-    }
-  }
-
-  // Direct client Gemini API fallback if VITE_GEMINI_API_KEY is available
-  if (directGeminiKey) {
-    const prompt = `Extract 4 to 8 key course terms and definitions for topic "${lectureTitle}" from this text: "${cleanPrimer.slice(0, 2000)}". Return JSON array of objects with keys "keyword", "definition", "details".`;
-    const directResult = await callDirectGeminiAPI(prompt, directGeminiKey, true);
-    if (directResult) {
-      try {
-        const parsed = JSON.parse(directResult);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const extractedVocab = parsed.map((item: any) => ({
-            keyword: String(item.keyword || "").trim(),
-            definition: String(item.definition || "").trim(),
-            details: String(item.details || "").trim(),
-          })).filter(v => v.keyword && v.definition);
-          if (extractedVocab.length > 0) {
             return { extractedVocab, summaryPrimer: cleanPrimer.slice(0, 150) };
           }
         }
-      } catch (_) {}
-    }
+      }
+    } catch (_) {}
   }
 
   // ── Intelligent Local NLP & Heuristic Parser ────────────────────────────────
@@ -268,7 +293,7 @@ export async function processTranscriptChunk(
 }
 
 /**
- * Generates an AI summary for a completed lecture session using Gemini AI via Supabase Edge Function.
+ * Generates an AI summary for a completed lecture session using In-House Hybrid Architecture.
  */
 export async function generateAISummary(
   title: string,
@@ -283,9 +308,50 @@ export async function generateAISummary(
     return `# ${title || "Lecture Review"}\n\nNo spoken transcript was recorded during this live session. Start speaking during a live classroom broadcast to record captions and generate automated AI summaries.`;
   }
 
+  const topicName = title || "Lecture Session";
+  const fullTranscript = cleanTranscript.map((t) => `- ${t.text}`).join("\n");
+  const cardsText = conceptCards.length > 0
+    ? conceptCards.map((c) => `- ${c.concept}: ${c.definition}`).join("\n")
+    : "None.";
+
+  // ── TIER 1: In-House Direct Gemini AI (App-Layer Execution) ─────────────────
+  const directApiKey = getInHouseGeminiKey();
+  if (directApiKey) {
+    const prompt = `You are an expert educational assistant for a live classroom platform.
+Generate a comprehensive, beautifully structured lecture review summary for the session: "${topicName}".
+
+Live Spoken Transcript:
+"""
+${fullTranscript.slice(0, 5000)}
+"""
+
+Key Course Concepts Triggered:
+"""
+${cardsText}
+"""
+
+Format your response in clean, professional Markdown with these exact sections:
+# Lecture Executive Summary
+Provide a 2-3 sentence overview of what was taught.
+
+## Key Concepts & Takeaways
+List 3-5 major takeaways or key definitions.
+
+## Main Topics Covered
+Group the discussion into clear, bulleted sub-topics.
+
+## Student Study & Review Recommendations
+Provide 2-3 actionable study recommendations for students reviewing this lecture.`;
+
+    const directSummary = await callDirectGeminiAPI(prompt, directApiKey, false);
+    if (directSummary && directSummary.length > 20) {
+      return directSummary;
+    }
+  }
+
+  // ── TIER 2: Supabase Edge Proxy Fallback ───────────────────────────────────
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
-  const directGeminiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 
   if (supabaseUrl && supabaseAnonKey) {
     try {
@@ -313,25 +379,12 @@ export async function generateAISummary(
         if (data.summary && data.summary.length > 20) {
           return data.summary;
         }
-      } else {
-        console.info(`[geminiService] gemini-extract returned ${response.status} — using local summary fallback.`);
       }
-    } catch (e: any) {
-      const reason = e?.name === "AbortError" ? "request timed out" : String(e);
-      console.info(`[geminiService] gemini-extract failed (${reason}) — using local summary fallback.`);
-    }
+    } catch (_) {}
   }
 
-  // Direct client Gemini API fallback if VITE_GEMINI_API_KEY is defined
-  if (directGeminiKey) {
-    const fullText = cleanTranscript.map(t => t.text).join("\n");
-    const prompt = `Generate a structured markdown lecture summary for "${title}". Transcript:\n${fullText.slice(0, 3000)}`;
-    const directResult = await callDirectGeminiAPI(prompt, directGeminiKey, false);
-    if (directResult) return directResult;
-  }
-
-  // Fallback structured summary generator if offline/error
-  const fullTranscript = cleanTranscript.map((t) => t.text).join(" ");
+  // ── TIER 3: Local Structured Summary Fallback ───────────────────────────────
+  const fullTranscriptText = cleanTranscript.map((t) => t.text).join(" ");
   const lineCount = cleanTranscript.length;
   const conceptsList = conceptCards.map((c) => c.concept).join(", ");
 
@@ -346,6 +399,6 @@ ${conceptCards.length > 0
   : "1. Delivered live real-time speech-to-text captions for student accessibility."}
 
 ## Spoken Transcript Overview
-"${fullTranscript.slice(0, 300)}${fullTranscript.length > 300 ? "..." : ""}"`;
+"${fullTranscriptText.slice(0, 300)}${fullTranscriptText.length > 300 ? "..." : ""}"`;
 }
 

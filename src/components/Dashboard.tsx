@@ -23,12 +23,15 @@ import {
   faHeartPulse,
   faCalculator,
   faLeaf,
+  faCloudArrowUp,
+  faDownload,
   faGlobe,
   faCheckCircle,
 } from "@fortawesome/free-solid-svg-icons";
 import { Navbar } from "./Navbar";
 import type { CustomTerm } from "../context/SignBridgeContext";
 import { parseLecturePrimer } from "../services/geminiService";
+import { extractTextFromFile, sanitizeDocxTextIfNeeded } from "../utils/fileParser";
 
 // ─── Category grid config (Normal Clean Aesthetic) ───────────────────────────
 const TOPIC_CATEGORIES = [
@@ -104,10 +107,69 @@ export const Dashboard: React.FC = () => {
   const [lectureTitle, setLectureTitle] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [lecturePrimerText, setLecturePrimerText] = useState("");
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [keytermsList, setKeytermsList] = useState<CustomTerm[]>([]);
   const [newKeyword, setNewKeyword] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFileName(file.name);
+    setIsExtracting(true);
+    try {
+      const extractedText = await extractTextFromFile(file);
+      setLecturePrimerText(extractedText);
+
+      if (extractedText.trim()) {
+        const res = await parseLecturePrimer(extractedText, lectureTitle);
+        if (res.extractedVocab?.length > 0) {
+          setKeytermsList((prev) => {
+            const merged = [...prev, ...res.extractedVocab];
+            return merged.filter(
+              (v, i, self) =>
+                i === self.findIndex((t) => t.keyword.toLowerCase() === v.keyword.toLowerCase())
+            );
+          });
+        }
+      }
+    } catch (_) {}
+    setIsExtracting(false);
+  };
+
+  const handleDownloadSampleTemplate = () => {
+    const sampleContent = `# ${lectureTitle || "Lecture Title: Introduction to Computer Science"}
+
+## Course Overview & Objectives
+In this lecture, we explore core concepts in Algorithms, Data Structures, and System Architecture.
+
+## Key Vocabulary & Definitions
+
+### Retrieval Augmented Generation (RAG)
+- **Definition**: A technique that enhances Large Language Models by fetching external documents before generating responses.
+- **Aliases**: RAG, GenAI Search, External Memory
+
+### Photosynthesis
+- **Definition**: The process by which green plants and organisms synthesize nutrients from carbon dioxide and water using sunlight.
+- **Aliases**: Plant energy conversion
+
+### Overfitting
+- **Definition**: When a statistical model fits exactly against its training data, resulting in poor performance on unseen test data.
+- **Aliases**: Over-training, High Variance
+`;
+
+    const blob = new Blob([sampleContent], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `${(lectureTitle || "lesson").toLowerCase().replace(/\s+/g, "_")}_template.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // History Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -386,19 +448,52 @@ export const Dashboard: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {/* Left: Notes Input */}
+                    {/* Left: Notes Input & File Upload */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <label className="font-medium text-[var(--text)]">Lecture Notes</label>
+                        <label className="font-medium text-[var(--text)]">Lecture Notes or File</label>
+                        <button
+                          type="button"
+                          onClick={handleDownloadSampleTemplate}
+                          className="text-[10px] text-[var(--primary)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                          title="Download a recommended Markdown lesson template"
+                        >
+                          <FontAwesomeIcon icon={faDownload} className="text-[9px]" />
+                          <span>Sample Template (.md)</span>
+                        </button>
+                      </div>
+
+                      {/* File Upload Dropzone */}
+                      <label className="flex flex-col items-center justify-center p-3 border border-dashed border-[var(--border)] hover:border-[var(--primary)] rounded-lg bg-[var(--surface)]/50 cursor-pointer transition-colors group text-center">
+                        <input
+                          type="file"
+                          accept=".txt,.md,.markdown,.json,.csv,.doc,.docx"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                        />
+                        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] group-hover:text-[var(--primary)] transition-colors">
+                          <FontAwesomeIcon icon={faCloudArrowUp} className="text-sm text-[var(--primary)]" />
+                          <span className="font-medium">
+                            {uploadedFileName ? `Attached: ${uploadedFileName}` : "Upload Notes File (.txt, .md, .docx, .json)"}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                          Drag & drop or click to select a file from your computer
+                        </span>
+                      </label>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <span className="text-[10px] text-[var(--text-muted)]">Or paste text directly:</span>
                         <span className="text-[var(--text-muted)] font-mono text-[10px]">
                           {lecturePrimerText.length} chars
                         </span>
                       </div>
+
                       <textarea
-                        rows={8}
-                        placeholder="Paste lecture outline or slide text here..."
+                        rows={5}
+                        placeholder="Paste lecture outline, slide text, or syllabus here..."
                         value={lecturePrimerText}
-                        onChange={(e) => setLecturePrimerText(e.target.value)}
+                        onChange={(e) => setLecturePrimerText(sanitizeDocxTextIfNeeded(e.target.value))}
                         className="w-full p-3 border border-[var(--border)] focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] rounded-md bg-[var(--background)] text-[var(--text)] text-xs outline-none resize-none font-sans transition-colors"
                       />
                       <button

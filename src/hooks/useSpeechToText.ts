@@ -37,29 +37,42 @@ declare global {
 }
 
 // ─── Resampler & Audio Encoder ────────────────────────────────────────────────
-/** Resample Float32 audio to 16kHz PCM Int16Array */
+/** Resample Float32 audio to 16kHz PCM Int16Array using linear interpolation & calculate RMS volume */
 function resampleAndEncodePCM(
   inputData: Float32Array,
   inputSampleRate: number,
   targetSampleRate = 16000
-): Int16Array {
+): { pcm: Int16Array; rms: number } {
+  let sumSq = 0;
+  for (let i = 0; i < inputData.length; i++) {
+    sumSq += inputData[i] * inputData[i];
+  }
+  const rms = Math.sqrt(sumSq / inputData.length);
+
   if (inputSampleRate === targetSampleRate) {
     const pcm = new Int16Array(inputData.length);
     for (let i = 0; i < inputData.length; i++) {
       const s = Math.max(-1, Math.min(1, inputData[i]));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
-    return pcm;
+    return { pcm, rms };
   }
+
   const ratio = inputSampleRate / targetSampleRate;
   const newLength = Math.floor(inputData.length / ratio);
   const pcm = new Int16Array(newLength);
+
   for (let i = 0; i < newLength; i++) {
-    const originIdx = Math.floor(i * ratio);
-    const s = Math.max(-1, Math.min(1, inputData[originIdx]));
+    const originPosition = i * ratio;
+    const indexLow = Math.floor(originPosition);
+    const indexHigh = Math.min(indexLow + 1, inputData.length - 1);
+    const weight = originPosition - indexLow;
+    // Linear interpolation between sample points to prevent high-frequency aliasing
+    const interpolatedSample = inputData[indexLow] * (1 - weight) + inputData[indexHigh] * weight;
+    const s = Math.max(-1, Math.min(1, interpolatedSample));
     pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }
-  return pcm;
+  return { pcm, rms };
 }
 
 // ─── AssemblyAI Streaming v3 WebSocket STT ────────────────────────────────────
@@ -417,12 +430,17 @@ export const useSpeechToText = ({
               return;
             }
             const inputData = e.inputBuffer.getChannelData(0);
-            const pcmBuffer = resampleAndEncodePCM(
+            const { pcm, rms } = resampleAndEncodePCM(
               inputData,
               audioCtx.sampleRate,
               16000
             );
-            wsRef.current.send(pcmBuffer.buffer as ArrayBuffer);
+            // Voice Activity Detection (VAD) silence suppression:
+            // Skip sending audio buffers when volume is below ambient noise floor (RMS < 0.003 / -50dB)
+            const SILENCE_RMS_THRESHOLD = 0.003;
+            if (rms >= SILENCE_RMS_THRESHOLD && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(pcm.buffer as ArrayBuffer);
+            }
           };
 
           sourceNode.connect(scriptProcessor);

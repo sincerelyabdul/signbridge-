@@ -293,10 +293,18 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!prev || prev.id !== sessionId) return prev;
         
         if (type === "TRANSCRIPT" && line) {
-          if (prev.transcript.some(t => t.id === line.id)) return prev;
+          const idx = prev.transcript.findIndex((t) => t.id === line.id);
+          if (idx >= 0) {
+            const updatedList = [...prev.transcript];
+            updatedList[idx] = line;
+            return {
+              ...prev,
+              transcript: updatedList,
+            };
+          }
           return {
             ...prev,
-            transcript: [...prev.transcript, line]
+            transcript: [...prev.transcript, line],
           };
         }
 
@@ -518,19 +526,29 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         channel
           .on(
             "postgres_changes",
-            { event: "INSERT", schema: "public", table: "transcripts", filter: `session_id=eq.${targetData.id}` },
-            (payload) => {
+            { event: "*", schema: "public", table: "transcripts", filter: `session_id=eq.${targetData.id}` },
+            (payload: any) => {
+              const record = payload.new || {};
+              if (!record.id) return;
               const newL: TranscriptLine = {
-                id: payload.new.id,
-                text: payload.new.text,
-                timestamp: new Date(payload.new.timestamp).getTime()
+                id: record.id,
+                text: record.text || "",
+                timestamp: new Date(record.timestamp || Date.now()).getTime()
               };
               setActiveSession((prev) => {
                 if (!prev || prev.id !== targetData.id) return prev;
-                if (prev.transcript.some(t => t.id === newL.id)) return prev;
+                const idx = prev.transcript.findIndex((t) => t.id === newL.id);
+                if (idx >= 0) {
+                  const updatedList = [...prev.transcript];
+                  updatedList[idx] = newL;
+                  return {
+                    ...prev,
+                    transcript: updatedList,
+                  };
+                }
                 return {
                   ...prev,
-                  transcript: [...prev.transcript, newL]
+                  transcript: [...prev.transcript, newL],
                 };
               });
             }
@@ -538,13 +556,15 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .on(
             "postgres_changes",
             { event: "INSERT", schema: "public", table: "concept_cards", filter: `session_id=eq.${targetData.id}` },
-            (payload) => {
+            (payload: any) => {
+              const record = payload.new || {};
+              if (!record.id) return;
               const newC: ConceptCard = {
-                id: payload.new.id,
-                concept: payload.new.concept,
-                definition: payload.new.definition,
-                details: payload.new.details,
-                timestamp: new Date(payload.new.timestamp).getTime()
+                id: record.id,
+                concept: record.concept || "",
+                definition: record.definition || "",
+                details: record.details || "",
+                timestamp: new Date(record.timestamp || Date.now()).getTime()
               };
               setActiveSession((prev) => {
                 if (!prev || prev.id !== targetData.id) return prev;
@@ -700,11 +720,27 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Sync to Supabase in background
     if (!isPlaceholder) {
       try {
-        await supabase.from("transcripts").insert({
-          id: lineId,
-          session_id: activeSession.id,
-          text
-        });
+        if (isUpdate) {
+          const { error: updateErr } = await supabase
+            .from("transcripts")
+            .update({ text })
+            .eq("id", lineId);
+
+          if (updateErr) {
+            // Fallback to fresh insert if UPDATE RLS permission is restricted (403)
+            await supabase.from("transcripts").insert({
+              id: crypto.randomUUID(),
+              session_id: activeSession.id,
+              text
+            });
+          }
+        } else {
+          await supabase.from("transcripts").insert({
+            id: lineId,
+            session_id: activeSession.id,
+            text
+          });
+        }
 
         if (detectedVocab) {
           await supabase.from("concept_cards").insert({

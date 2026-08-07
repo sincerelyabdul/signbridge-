@@ -11,6 +11,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// In-memory token cache for Edge Runtime instance
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -28,6 +31,13 @@ Deno.serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
+    }
+
+    // Reuse unexpired cached token if valid for at least 60 more seconds
+    if (cachedToken && Date.now() < cachedToken.expiresAt) {
+      return new Response(JSON.stringify({ token: cachedToken.token, cached: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Fetch temporary streaming token from AssemblyAI v3
@@ -55,6 +65,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const data = await tokenResponse.json();
+
+    // Cache token with a 500 second (8.3 min) safety TTL
+    if (data.token) {
+      cachedToken = {
+        token: data.token,
+        expiresAt: Date.now() + 500 * 1000,
+      };
+    }
 
     return new Response(JSON.stringify({ token: data.token }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
