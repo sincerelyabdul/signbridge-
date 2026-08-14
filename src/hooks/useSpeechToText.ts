@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type STTEngine = "auto" | "web-speech" | "assemblyai";
+export type STTEngine = "auto" | "deepgram" | "web-speech";
 
 interface UseSpeechToTextProps {
   onFinalResult: (text: string) => void;
+  onInterimResult?: (text: string) => void;
   keywords?: string[];
   engine?: STTEngine;
 }
@@ -34,6 +35,18 @@ declare global {
     SpeechRecognition?: any;
     webkitSpeechRecognition?: any;
   }
+}
+
+/**
+ * Retrieves configured Live Speech Engine API Key (User Settings > Environment Variable)
+ */
+export function getDeepgramKey(): string | null {
+  if (typeof window !== "undefined") {
+    const userKey = localStorage.getItem("sb_user_stt_key") || localStorage.getItem("sb_user_deepgram_key");
+    if (userKey && userKey.trim().length > 10) return userKey.trim();
+  }
+  const envKey = (import.meta.env.VITE_DEEPGRAM_API_KEY || import.meta.env.VITE_STT_API_KEY) as string | undefined;
+  return envKey && envKey.trim().length > 10 ? envKey.trim() : null;
 }
 
 // ─── Resampler & Audio Encoder ────────────────────────────────────────────────
@@ -67,7 +80,6 @@ function resampleAndEncodePCM(
     const indexLow = Math.floor(originPosition);
     const indexHigh = Math.min(indexLow + 1, inputData.length - 1);
     const weight = originPosition - indexLow;
-    // Linear interpolation between sample points to prevent high-frequency aliasing
     const interpolatedSample = inputData[indexLow] * (1 - weight) + inputData[indexHigh] * weight;
     const s = Math.max(-1, Math.min(1, interpolatedSample));
     pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
@@ -75,278 +87,134 @@ function resampleAndEncodePCM(
   return { pcm, rms };
 }
 
-// ─── AssemblyAI Streaming v3 WebSocket STT ────────────────────────────────────
-
-/** Fetch temporary streaming token securely from Supabase Edge Function */
-async function fetchAssemblyAIToken(): Promise<string | null> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
-
-  if (supabaseUrl && supabaseAnonKey) {
-    try {
-      const res = await fetch(`${supabaseUrl}/functions/v1/assemblyai-token`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          apikey: supabaseAnonKey,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.token) return data.token;
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        console.error("[AssemblyAI STT] Edge token endpoint returned error:", res.status, errData);
-      }
-    } catch (e) {
-      console.error("[AssemblyAI STT] Failed to fetch secure token from Edge Function:", e);
-    }
-  }
-  return null;
-}
-
-/** Build the fully-authenticated, configured WebSocket URL with keyterms_prompt */
-const buildWsUrl = (authToken: string, keywords: string[]): string => {
-  const params = new URLSearchParams({
-    token: authToken,
-    sample_rate: "16000",
-    speech_model: "universal-streaming-english",
-    format_turns: "true",
-    encoding: "pcm_s16le",
-  });
-
-  const cleanKeywords = keywords.map((k) => k.trim()).filter(Boolean);
-  if (cleanKeywords.length > 0) {
-    params.set("keyterms_prompt", JSON.stringify(cleanKeywords));
-  }
-
-  return `wss://streaming.assemblyai.com/v3/ws?${params.toString()}`;
-};
-
-const MAX_RECONNECT_ATTEMPTS = 5;
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── Main Speech Hook ─────────────────────────────────────────────────────────
 
 export const useSpeechToText = ({
   onFinalResult,
+  onInterimResult,
   keywords = [],
   engine = "auto",
 }: UseSpeechToTextProps) => {
-  // 1. Primitive State Hooks
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [activeEngine, setActiveEngine] = useState<"web-speech" | "assemblyai">(
-    "web-speech"
-  );
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
+  const [activeEngine, setActiveEngine] = useState<"deepgram" | "web-speech" | null>(null);
 
-  const hasWebSpeech =
-    typeof window !== "undefined" &&
-    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  // Mutable refs
+  const onFinalRef = useRef(onFinalResult);
+  onFinalRef.current = onFinalResult;
 
-  const hasEdgeFunction = !!(import.meta.env.VITE_SUPABASE_URL);
+  const onInterimRef = useRef(onInterimResult);
+  onInterimRef.current = onInterimResult;
 
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
-    hasWebSpeech || hasEdgeFunction ? "idle" : "no-key"
-  );
+  const keywordsRef = useRef(keywords);
+  keywordsRef.current = keywords;
 
-  // 2. Stable Ref Hooks
   const wsRef = useRef<WebSocket | null>(null);
-  const webSpeechRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
-  const isActiveRef = useRef(false);
+  const recognitionRef = useRef<any>(null);
+  const sentenceBufferRef = useRef("");
+  const sentenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onFinalResultRef = useRef(onFinalResult);
-  const keywordsRef = useRef(keywords);
-  const connectionOpenedAtRef = useRef<number | null>(null);
-  const sessionReadyRef = useRef(false);
+  const isActiveRef = useRef(false);
 
-  // Sentence Accumulator Buffer
-  const sentenceBufferRef = useRef<string>("");
-  const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MAX_RECONNECT_ATTEMPTS = 5;
 
-  // 3. Keep refs current in Effect Hooks
-  useEffect(() => {
-    onFinalResultRef.current = onFinalResult;
-  }, [onFinalResult]);
-  useEffect(() => {
-    keywordsRef.current = keywords;
-  }, [keywords]);
+  const hasDirectKey = Boolean(getDeepgramKey());
+  const hasWebSpeech = typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const hasSpeechKey = hasDirectKey || hasWebSpeech;
 
-  // ── Flush sentence buffer to final output ──────────────────────────────────
-
+  // ── Helper: Flush buffered sentence ─────────────────────────────────────
   const flushBuffer = useCallback(() => {
-    if (bufferTimerRef.current) {
-      clearTimeout(bufferTimerRef.current);
-      bufferTimerRef.current = null;
+    if (sentenceTimerRef.current) {
+      clearTimeout(sentenceTimerRef.current);
+      sentenceTimerRef.current = null;
     }
-    const toFlush = sentenceBufferRef.current.trim();
-    if (toFlush) {
+    const text = sentenceBufferRef.current.trim();
+    if (text) {
+      onFinalRef.current(text);
       sentenceBufferRef.current = "";
       setInterimTranscript("");
-      onFinalResultRef.current(toFlush);
+      if (onInterimRef.current) onInterimRef.current("");
     }
   }, []);
 
-  // ── Teardown helpers ───────────────────────────────────────────────────────
-
+  // ── Helper: Stop Audio Processing & Cleanup ─────────────────────────────
   const stopAudioProcessing = useCallback(() => {
     if (scriptProcessorRef.current) {
-      try {
-        scriptProcessorRef.current.disconnect();
-      } catch (_) { /* ignore */ }
+      scriptProcessorRef.current.onaudioprocess = null;
+      try { scriptProcessorRef.current.disconnect(); } catch (_) {}
       scriptProcessorRef.current = null;
     }
     if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.disconnect();
-      } catch (_) { /* ignore */ }
+      try { sourceNodeRef.current.disconnect(); } catch (_) {}
       sourceNodeRef.current = null;
     }
     if (audioCtxRef.current) {
       try {
         if (audioCtxRef.current.state !== "closed") {
-          audioCtxRef.current.close();
+          audioCtxRef.current.close().catch(() => {});
         }
-      } catch (_) { /* ignore */ }
+      } catch (_) {}
       audioCtxRef.current = null;
     }
-    try {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch (_) { /* ignore */ }
-    streamRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
   }, []);
 
-  const closeWs = useCallback((intentional: boolean) => {
+  const closeWs = useCallback((resetAttempts = false) => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
     if (wsRef.current) {
-      wsRef.current.onopen = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror = null;
-      wsRef.current.onclose = null;
-      try {
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ terminate_session: true }));
-        }
-        wsRef.current.close();
-      } catch (_) { /* ignore */ }
+      const ws = wsRef.current;
       wsRef.current = null;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
     }
-    sessionReadyRef.current = false;
-    if (intentional) {
-      reconnectAttemptsRef.current = 0;
-    }
-  }, []);
+    stopAudioProcessing();
+    if (resetAttempts) reconnectAttemptsRef.current = 0;
+  }, [stopAudioProcessing]);
 
   const stopWebSpeech = useCallback(() => {
-    if (webSpeechRef.current) {
+    if (recognitionRef.current) {
       try {
-        webSpeechRef.current.onstart = null;
-        webSpeechRef.current.onresult = null;
-        webSpeechRef.current.onerror = null;
-        webSpeechRef.current.onend = null;
-        webSpeechRef.current.stop();
-      } catch (_) { /* ignore */ }
-      webSpeechRef.current = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch (_) {}
+      recognitionRef.current = null;
     }
   }, []);
 
-  // ── Engine 1: Web Speech API (Edge / Chrome Speech Recognition) ───────────
+  // ── Engine 1: Live Speech AI (Deepgram WebSocket Engine) ────────────────
 
-  const connectWebSpeech = useCallback(() => {
-    const SpeechRecognitionAPI =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) {
-      console.warn("[Speech STT] Web Speech API not supported in this browser.");
-      return false;
-    }
-
-    stopWebSpeech();
-
-    try {
-      const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-      recognition.maxAlternatives = 1;
-
-      webSpeechRef.current = recognition;
-
-      recognition.onstart = () => {
-        if (!isActiveRef.current) return;
-        setConnectionStatus("connected");
-        setActiveEngine("web-speech");
-        console.log("[Web Speech STT] Edge/Chrome Speech Recognition active.");
-      };
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimText = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const transcriptText = result[0].transcript;
-          if (result.isFinal) {
-            const finalClean = transcriptText.trim();
-            if (finalClean) {
-              onFinalResultRef.current(finalClean);
-            }
-          } else {
-            interimText += transcriptText;
-          }
-        }
-        setInterimTranscript(interimText);
-      };
-
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.warn("[Web Speech STT] Error:", event.error);
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-          setConnectionStatus("error");
-          isActiveRef.current = false;
-        }
-      };
-
-      recognition.onend = () => {
-        if (isActiveRef.current && webSpeechRef.current) {
-          try {
-            recognition.start();
-          } catch (_) { /* ignore */ }
-        } else {
-          setConnectionStatus("idle");
-        }
-      };
-
-      recognition.start();
-      return true;
-    } catch (e) {
-      console.error("[Web Speech STT] Failed to initialize Web Speech API:", e);
-      return false;
-    }
-  }, [stopWebSpeech]);
-
-  // ── Engine 2: AssemblyAI Streaming v3 (With Edge Token & Resampler) ───────
-
-  const connectAssemblyAI = useCallback(async () => {
+  const connectDeepgram = useCallback(async () => {
     if (!isActiveRef.current) return;
-
-    const token = await fetchAssemblyAIToken();
-    if (!token) {
+    const apiKey = getDeepgramKey();
+    if (!apiKey) {
       setConnectionStatus("no-key");
       return;
     }
-    if (!isActiveRef.current) return;
 
-    setActiveEngine("assemblyai");
-    setConnectionStatus(
-      reconnectAttemptsRef.current > 0 ? "reconnecting" : "connecting"
-    );
+    setActiveEngine("deepgram");
+    setConnectionStatus(reconnectAttemptsRef.current > 0 ? "reconnecting" : "connecting");
 
-    // 1. Acquire microphone stream
+    // Acquire microphone
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -358,7 +226,7 @@ export const useSpeechToText = ({
         },
       });
     } catch (err) {
-      console.error("[AssemblyAI STT] Microphone access denied:", err);
+      console.error("[Speech STT] Microphone access denied:", err);
       setConnectionStatus("error");
       return;
     }
@@ -367,12 +235,18 @@ export const useSpeechToText = ({
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
-
     streamRef.current = stream;
 
-    // 2. Open WebSocket with Token & Keyterms Prompt Bias
-    const wsUrl = buildWsUrl(token, keywordsRef.current);
-    const ws = new WebSocket(wsUrl);
+    // Build WebSocket URL
+    let wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&encoding=linear16&sample_rate=16000&channels=1&punctuate=true&interim_results=true&smart_formatting=true`;
+    if (keywordsRef.current.length > 0) {
+      keywordsRef.current.forEach((kw) => {
+        const clean = kw.trim();
+        if (clean) wsUrl += `&keywords=${encodeURIComponent(clean)}:2`;
+      });
+    }
+
+    const ws = new WebSocket(wsUrl, ["token", apiKey]);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
@@ -381,188 +255,148 @@ export const useSpeechToText = ({
         closeWs(true);
         return;
       }
-      connectionOpenedAtRef.current = Date.now();
-      console.log("[AssemblyAI STT] WebSocket opened with secure token.");
+      console.log("[Speech STT] Real-time AI WebSocket stream established.");
+      setConnectionStatus("connected");
+      reconnectAttemptsRef.current = 0;
+
+      // Start audio resampler & PCM encoder
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioCtx();
+        audioCtxRef.current = audioCtx;
+
+        const sourceNode = audioCtx.createMediaStreamSource(stream);
+        sourceNodeRef.current = sourceNode;
+
+        const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+        scriptProcessorRef.current = scriptProcessor;
+
+        scriptProcessor.onaudioprocess = (e) => {
+          if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          const { pcm, rms } = resampleAndEncodePCM(inputData, audioCtx.sampleRate, 16000);
+          // Noise floor gate
+          if (rms >= 0.003 && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(pcm.buffer as ArrayBuffer);
+          }
+        };
+
+        sourceNode.connect(scriptProcessor);
+        scriptProcessor.connect(audioCtx.destination);
+      } catch (e) {
+        console.error("[Speech STT] Audio processing failed:", e);
+      }
     };
 
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
-      let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(event.data);
-      } catch (e) {
-        console.warn("[AssemblyAI STT] Failed to parse message:", e);
-        return;
-      }
-
-      const msgType = (msg.type ?? msg.message_type) as string | undefined;
-
-      // ── Session lifecycle ─────────────────────────────────────────────────
-      if (msgType === "Begin" || msgType === "SessionBegins") {
-        sessionReadyRef.current = true;
-        reconnectAttemptsRef.current = 0;
-        sentenceBufferRef.current = "";
-        setInterimTranscript("");
-        setConnectionStatus("connected");
-        const sessionId = (msg.id ?? msg.session_id) as string | undefined;
-        console.log("[AssemblyAI STT] Session started:", sessionId);
-
-        // 3. Start Web Audio PCM processing with RESAMPLER to 16kHz
-        try {
-          const AudioCtx =
-            window.AudioContext ||
-            (window as unknown as { webkitAudioContext: typeof AudioContext })
-              .webkitAudioContext;
-          const audioCtx = new AudioCtx();
-          audioCtxRef.current = audioCtx;
-
-          const sourceNode = audioCtx.createMediaStreamSource(stream);
-          sourceNodeRef.current = sourceNode;
-
-          const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-          scriptProcessorRef.current = scriptProcessor;
-
-          scriptProcessor.onaudioprocess = (e) => {
-            if (
-              !sessionReadyRef.current ||
-              wsRef.current?.readyState !== WebSocket.OPEN
-            ) {
-              return;
+        const msg = JSON.parse(event.data);
+        if (msg.type === "Results" && msg.channel?.alternatives?.[0]) {
+          const alt = msg.channel.alternatives[0];
+          const text = (alt.transcript || "").trim();
+          if (text) {
+            if (msg.is_final) {
+              onFinalRef.current(text);
+              setInterimTranscript("");
+              if (onInterimRef.current) onInterimRef.current("");
+            } else {
+              setInterimTranscript(text);
+              if (onInterimRef.current) onInterimRef.current(text);
             }
-            const inputData = e.inputBuffer.getChannelData(0);
-            const { pcm, rms } = resampleAndEncodePCM(
-              inputData,
-              audioCtx.sampleRate,
-              16000
-            );
-            // Voice Activity Detection (VAD) silence suppression:
-            // Skip sending audio buffers when volume is below ambient noise floor (RMS < 0.003 / -50dB)
-            const SILENCE_RMS_THRESHOLD = 0.003;
-            if (rms >= SILENCE_RMS_THRESHOLD && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(pcm.buffer as ArrayBuffer);
-            }
-          };
-
-          sourceNode.connect(scriptProcessor);
-          scriptProcessor.connect(audioCtx.destination);
-        } catch (e) {
-          console.error("[AssemblyAI STT] AudioContext setup failed:", e);
-          setConnectionStatus("error");
-        }
-        return;
-      }
-
-      if (msgType === "Termination" || msgType === "SessionTerminated") {
-        console.log("[AssemblyAI STT] Session terminated by server.");
-        return;
-      }
-
-      // ── Error from server ─────────────────────────────────────────────────
-      if (msgType === "Error" || msgType === "error" || msg.error) {
-        console.error("[AssemblyAI STT] Server error:", msg.error ?? msg);
-        return;
-      }
-
-      // ── Transcript results ────────────────────────────────────────────────
-      const text = ((msg.text as string) ?? "").trim();
-
-      if (msgType === "PartialTranscript") {
-        if (text) {
-          const prevBuf = sentenceBufferRef.current.trim();
-          setInterimTranscript(prevBuf ? `${prevBuf} ${text}` : text);
-        }
-        return;
-      }
-
-      if (msgType === "FinalTranscript" || msgType === "Turn") {
-        const finalText = (
-          (msgType === "Turn"
-            ? (msg.transcript as string)
-            : text) ?? ""
-        ).trim();
-
-        if (!finalText) return;
-
-        let newBuf = finalText;
-        const prevBuf = sentenceBufferRef.current.trim();
-
-        if (prevBuf) {
-          if (finalText.toLowerCase().startsWith(prevBuf.toLowerCase())) {
-            newBuf = finalText;
-          } else if (!prevBuf.toLowerCase().endsWith(finalText.toLowerCase())) {
-            newBuf = `${prevBuf} ${finalText}`;
-          } else {
-            newBuf = prevBuf;
           }
         }
-
-        const endsWithPunctuation = /[.?!]$/.test(finalText);
-
-        if (endsWithPunctuation || newBuf.length >= 240 || msgType === "Turn") {
-          sentenceBufferRef.current = "";
-          setInterimTranscript("");
-          if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
-          onFinalResultRef.current(newBuf);
-        } else {
-          sentenceBufferRef.current = newBuf;
-          setInterimTranscript(newBuf);
-          if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
-          bufferTimerRef.current = setTimeout(() => {
-            flushBuffer();
-          }, 3500);
-        }
+      } catch (e) {
+        console.warn("[Speech STT] Error parsing speech result:", e);
       }
     };
 
     ws.onerror = (e) => {
-      console.error("[AssemblyAI STT] WebSocket error:", e);
+      console.error("[Speech STT] WebSocket error:", e);
     };
 
-    ws.onclose = (e) => {
-      flushBuffer();
+    ws.onclose = () => {
       stopAudioProcessing();
-      wsRef.current = null;
-      sessionReadyRef.current = false;
-      setInterimTranscript("");
-
-      if (!isActiveRef.current) {
-        setConnectionStatus("idle");
-        return;
-      }
-
-      const lifetime = connectionOpenedAtRef.current
-        ? Date.now() - connectionOpenedAtRef.current
-        : 0;
-      const isAuthRejection =
-        e.code === 4001 || e.code === 4000 || (e.code === 1006 && lifetime < 1500);
-
-      if (isAuthRejection) {
-        console.error(
-          `[AssemblyAI STT] Auth rejected (code ${e.code}, lived ${lifetime}ms). Check AssemblyAI credentials.`
-        );
-        setConnectionStatus("no-key");
-        isActiveRef.current = false;
-        return;
-      }
-
+      if (!isActiveRef.current) return;
       const attempt = reconnectAttemptsRef.current;
       if (attempt < MAX_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 16000);
-        console.warn(
-          `[AssemblyAI STT] Connection closed (code ${e.code}). Reconnecting in ${delay}ms`
-        );
         reconnectAttemptsRef.current += 1;
         setConnectionStatus("reconnecting");
         reconnectTimerRef.current = setTimeout(() => {
-          if (isActiveRef.current) connectAssemblyAI();
+          if (isActiveRef.current) connectDeepgram();
         }, delay);
       } else {
-        console.error("[AssemblyAI STT] Max reconnect attempts reached.");
         setConnectionStatus("error");
         isActiveRef.current = false;
       }
     };
-  }, [closeWs, flushBuffer, stopAudioProcessing]);
+  }, [closeWs, stopAudioProcessing]);
+
+  // ── Engine 2: Web Speech API Fallback ────────────────────────────────────
+
+  const connectWebSpeech = useCallback(() => {
+    const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechClass) {
+      setConnectionStatus("no-key");
+      return false;
+    }
+
+    setActiveEngine("web-speech");
+    setConnectionStatus("connecting");
+
+    try {
+      const recognition = new SpeechClass();
+      recognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        console.log("[Speech STT] Browser speech engine active.");
+        setConnectionStatus("connected");
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = result[0].transcript;
+          if (result.isFinal) {
+            sentenceBufferRef.current = (sentenceBufferRef.current + " " + text).trim();
+            if (!sentenceTimerRef.current) {
+              sentenceTimerRef.current = setTimeout(flushBuffer, 1000);
+            }
+          } else {
+            interimText += text;
+          }
+        }
+
+        if (interimText.trim()) {
+          setInterimTranscript(interimText.trim());
+          if (onInterimRef.current) onInterimRef.current(interimText.trim());
+        }
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.warn("[Speech STT] Browser recognition error:", event.error);
+        if (event.error === "no-speech" || event.error === "network") return;
+        setConnectionStatus("error");
+      };
+
+      recognition.onend = () => {
+        if (isActiveRef.current && activeEngine === "web-speech") {
+          try { recognition.start(); } catch (_) {}
+        }
+      };
+
+      recognition.start();
+      return true;
+    } catch (e) {
+      console.error("[Speech STT] Browser speech API failed:", e);
+      return false;
+    }
+  }, [activeEngine, flushBuffer]);
 
   // ── Start / Stop Router ───────────────────────────────────────────────────
 
@@ -571,13 +405,23 @@ export const useSpeechToText = ({
     isActiveRef.current = true;
     reconnectAttemptsRef.current = 0;
 
-    if (engine === "web-speech" || engine === "auto") {
-      const success = connectWebSpeech();
-      if (success) return;
+    if (engine === "web-speech") {
+      connectWebSpeech();
+      return;
     }
 
-    connectAssemblyAI();
-  }, [connectAssemblyAI, connectWebSpeech, engine]);
+    // Auto mode: Use High-Precision AI Key if configured, else browser Web Speech API
+    if (hasDirectKey) {
+      connectDeepgram();
+      return;
+    }
+
+    if (hasWebSpeech) {
+      connectWebSpeech();
+    } else {
+      connectDeepgram();
+    }
+  }, [connectDeepgram, connectWebSpeech, engine, hasDirectKey, hasWebSpeech]);
 
   const stopListening = useCallback(() => {
     isActiveRef.current = false;
@@ -589,7 +433,6 @@ export const useSpeechToText = ({
     setConnectionStatus("idle");
   }, [closeWs, flushBuffer, stopAudioProcessing, stopWebSpeech]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       isActiveRef.current = false;
@@ -604,7 +447,8 @@ export const useSpeechToText = ({
     interimTranscript,
     connectionStatus,
     activeEngine,
-    hasAssemblyAIKey: hasEdgeFunction || hasWebSpeech,
+    hasSpeechKey,
+    hasAssemblyAIKey: hasSpeechKey, // Backward compatibility alias
     startListening,
     stopListening,
     isListening: connectionStatus === "connected",

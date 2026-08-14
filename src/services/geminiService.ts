@@ -19,7 +19,7 @@ export interface SessionContext {
 /**
  * In-House Direct Gemini API Orchestrator (Client / App-Level Execution)
  */
-async function callDirectGeminiAPI(prompt: string, apiKey: string, isJson: boolean = false): Promise<string | null> {
+export async function callDirectGeminiAPI(prompt: string, apiKey?: string, isJson: boolean = false): Promise<string | null> {
   const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-pro-latest"];
 
   for (const model of candidateModels) {
@@ -106,47 +106,7 @@ ${cleanPrimer.slice(0, 3000)}
     }
   }
 
-  // ── TIER 2: Supabase Edge Proxy Fallback ───────────────────────────────────
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
-
-  if (supabaseUrl && supabaseAnonKey) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const response = await fetch(`${supabaseUrl}/functions/v1/gemini-extract`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({ primerText: cleanPrimer, lectureTitle }),
-      });
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data.extractedVocab) && data.extractedVocab.length > 0) {
-          const extractedVocab: CustomTerm[] = data.extractedVocab
-            .map((item: any) => ({
-              keyword: String(item.keyword || "").trim(),
-              definition: String(item.definition || "").trim(),
-              details: String(item.details || "").trim(),
-              aliases: item.aliases ? String(item.aliases).trim() : undefined,
-            }))
-            .filter((v: CustomTerm) => v.keyword.length > 0 && v.definition.length > 0);
-
-          if (extractedVocab.length > 0) {
-            return { extractedVocab, summaryPrimer: cleanPrimer.slice(0, 150) };
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  // ── Intelligent Local NLP & Heuristic Parser ────────────────────────────────
+  // ── TIER 2: Intelligent Local NLP & Heuristic Parser Fallback ───────────────
   const extractedVocab: CustomTerm[] = [];
   const seenKeywords = new Set<string>();
 
@@ -349,41 +309,7 @@ Provide 2-3 actionable study recommendations for students reviewing this lecture
     }
   }
 
-  // ── TIER 2: Supabase Edge Proxy Fallback ───────────────────────────────────
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) as string | undefined;
-
-  if (supabaseUrl && supabaseAnonKey) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const response = await fetch(`${supabaseUrl}/functions/v1/gemini-extract`, {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          mode: "summary",
-          title,
-          transcriptLines: cleanTranscript,
-          conceptCards,
-        }),
-      });
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.summary && data.summary.length > 20) {
-          return data.summary;
-        }
-      }
-    } catch (_) {}
-  }
-
-  // ── TIER 3: Local Structured Summary Fallback ───────────────────────────────
+  // ── TIER 2: Local Structured Summary Fallback ───────────────────────────────
   const fullTranscriptText = cleanTranscript.map((t) => t.text).join(" ");
   const lineCount = cleanTranscript.length;
   const conceptsList = conceptCards.map((c) => c.concept).join(", ");

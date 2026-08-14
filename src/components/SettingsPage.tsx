@@ -89,6 +89,14 @@ export const SettingsPage: React.FC = () => {
   });
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
 
+  // Live Speech Engine Key State (Layman)
+  const [sttApiKey, setSttApiKey] = useState(() => {
+    return typeof window !== "undefined"
+      ? localStorage.getItem("sb_user_stt_key") || localStorage.getItem("sb_user_deepgram_key") || ""
+      : "";
+  });
+  const [sttKeySaved, setSttKeySaved] = useState(false);
+
   const handleSaveGeminiKey = (e: React.FormEvent) => {
     e.preventDefault();
     if (typeof window !== "undefined") {
@@ -202,6 +210,64 @@ export const SettingsPage: React.FC = () => {
                 className="w-full h-9 border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--background)] text-[var(--text)] font-semibold rounded-lg text-xs transition-colors cursor-pointer"
               >
                 {geminiApiKey ? "Save API Key" : "Remove API Key"}
+              </button>
+            </form>
+          </div>
+
+          {/* Live Speech Engine Key Card (Layman Terms) */}
+          <div className="border border-[var(--border)] rounded-xl bg-[var(--surface)] p-5 sm:p-6 text-left space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold tracking-wider uppercase text-[var(--text-muted)] flex items-center gap-2">
+                <FontAwesomeIcon icon={faWandMagicSparkles} className="text-xs text-violet-400" /> Live Speech Engine Key
+              </h2>
+              <span className="text-[10px] font-mono bg-violet-500/10 text-violet-400 px-2 py-0.5 rounded border border-violet-500/20 font-semibold">
+                High-Precision Speech AI
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              Configure your high-precision speech recognition key for ultra-fast, continuous classroom captioning.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (typeof window !== "undefined") {
+                  if (sttApiKey.trim()) {
+                    localStorage.setItem("sb_user_stt_key", sttApiKey.trim());
+                    localStorage.setItem("sb_user_deepgram_key", sttApiKey.trim());
+                  } else {
+                    localStorage.removeItem("sb_user_stt_key");
+                    localStorage.removeItem("sb_user_deepgram_key");
+                  }
+                  setSttKeySaved(true);
+                  setTimeout(() => setSttKeySaved(false), 2000);
+                }
+              }}
+              className="space-y-3"
+            >
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
+                  Speech Engine API Key
+                </label>
+                <input
+                  type="password"
+                  placeholder="Paste your API key here..."
+                  value={sttApiKey}
+                  onChange={(e) => setSttApiKey(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--text)] focus:outline-none focus:border-[var(--primary)] text-xs font-mono transition-colors"
+                />
+              </div>
+
+              {sttKeySaved && (
+                <p className="text-green-500 text-xs font-semibold">Speech Engine key saved successfully!</p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full h-9 border border-[var(--border)] hover:border-[var(--primary)] bg-[var(--background)] text-[var(--text)] font-semibold rounded-lg text-xs transition-colors cursor-pointer"
+              >
+                {sttApiKey ? "Save Speech Key" : "Remove Speech Key"}
               </button>
             </form>
           </div>

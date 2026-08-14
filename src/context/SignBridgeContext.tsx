@@ -66,6 +66,8 @@ interface SignBridgeContextType {
   endSession: () => Promise<string | null>;
   deleteSession: (id: string) => Promise<void>;
   addMockTranscriptLine: (text: string) => Promise<void>;
+  interimTranscript: string;
+  broadcastInterimTranscript: (text: string) => void;
   addGeminiAnalysisResult: (result: {
     correctedLine?: TranscriptLine;
     newConceptCards?: ConceptCard[];
@@ -124,7 +126,8 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [sessionCode, setSessionCode] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
-  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
   const [fontSize, setFontSize] = useState<"sm" | "md" | "lg" | "xl">("md");
   const [theme, setTheme] = useState<"light" | "dark">("dark");
 
@@ -292,6 +295,11 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setActiveSession((prev) => {
         if (!prev || prev.id !== sessionId) return prev;
         
+        if (type === "INTERIM_SPEECH") {
+          setInterimTranscript(event.data.text || "");
+          return prev;
+        }
+
         if (type === "TRANSCRIPT" && line) {
           const idx = prev.transcript.findIndex((t) => t.id === line.id);
           if (idx >= 0) {
@@ -576,6 +584,15 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               });
             }
           )
+          .on(
+            "broadcast",
+            { event: "interim_speech" },
+            (payload: any) => {
+              if (payload.payload && typeof payload.payload.text === "string") {
+                setInterimTranscript(payload.payload.text);
+              }
+            }
+          )
           .subscribe();
 
         channelRef.current = channel;
@@ -598,10 +615,40 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const broadcastInterimTranscript = (text: string) => {
+    setInterimTranscript(text);
+    if (offlineSync) {
+      offlineSync.postMessage({ type: "INTERIM_SPEECH", sessionId: activeSession?.id, text });
+    }
+    if (channelRef.current) {
+      try {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "interim_speech",
+          payload: { text, sessionId: activeSession?.id }
+        });
+      } catch (_) {}
+    }
+  };
+
   const addMockTranscriptLine = async (text: string) => {
     if (!activeSession) return;
     const rawClean = text.trim();
     if (!rawClean) return;
+
+    setInterimTranscript("");
+    if (offlineSync) {
+      offlineSync.postMessage({ type: "INTERIM_SPEECH", sessionId: activeSession.id, text: "" });
+    }
+    if (channelRef.current) {
+      try {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "interim_speech",
+          payload: { text: "", sessionId: activeSession.id }
+        });
+      } catch (_) {}
+    }
 
     // Real-Time Phonetic Auto-Correction & Academic Dictionary Polish
     const cleanText = autoCorrectLectureTranscript(rawClean, activeSession.customVocab || []);
@@ -613,8 +660,8 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let lineId: string = crypto.randomUUID();
     let isUpdate = false;
 
-    // Intelligent Paragraph Assembly: Merge continuous speech within 12 seconds into cohesive paragraphs
-    const PARAGRAPH_TIME_WINDOW_MS = 12000;
+    // Intelligent Paragraph Assembly: Merge continuous speech within 4 seconds into cohesive paragraphs
+    const PARAGRAPH_TIME_WINDOW_MS = 4000;
     const MAX_PARAGRAPH_LENGTH = 280;
 
     if (
@@ -1128,6 +1175,8 @@ export const SignBridgeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         endSession,
         deleteSession,
         addMockTranscriptLine,
+        interimTranscript,
+        broadcastInterimTranscript,
         addGeminiAnalysisResult,
         selectHistorySession,
         clearActiveSession,
